@@ -1,8 +1,9 @@
 import concurrent.futures
 import time
+import os
 
 def square(x, name="Me", number=0):
-    print("Presleep", name)
+    print("Presleep", name, os.getpid())
     time.sleep(2)  # Sleep for 2 seconds
     print("Postsleep", number)
     return x ** 2
@@ -10,6 +11,7 @@ def square(x, name="Me", number=0):
 if __name__ == "__main__":
     with concurrent.futures.ProcessPoolExecutor(max_workers=8) as executor:
     # with concurrent.futures.ThreadPoolExecutor() as executor:
+        print("Main", os.getpid())
         future = executor.submit(square, 2, number=1)
         future2 = executor.submit(square, 4, number=2, name="Me2")
 
