@@ -32,21 +32,6 @@ class Recursive_RPC:
         self.connection = [None for i in range(len(client))]
         self.last_pool = time.time()
 
-    def apply(self, func, args):
-        return self.client.apply(func, args)
-
-    def apply_async(self, func, args):
-        return self.client.apply_async(func, args)
-
-    def status(self):
-        pass
-
-    def pool(self):
-        if self.last_pool - time.time() > 10:
-            self.queue = self.pool_all()
-
-        return self.queue
-
     def __enter__(self):
         return self
 
@@ -54,6 +39,12 @@ class Recursive_RPC:
         for c in self.connection:
             c.close()
 
+    def apply(self, func, args):
+        return self.client.apply(func, args)
+
+    def apply_async(self, func, args):
+        return self.client.apply_async(func, args)
+    
 class RPC_Future:
     """
     This class is a placeholder of future value
@@ -65,6 +56,11 @@ class RPC_Future:
         pass
 
     def pool():
+        pass
+
+    @staticmethod
+    def as_completed(cls: List["RPC_Future"]) -> "RPC_Future":
+        yield cls[0]
         pass
 
 class Runner:
@@ -81,6 +77,12 @@ class ProcessRunner(Runner):
     pass
 
 class NetworkRunner(Runner):
+    pass
+
+class GPURunner(ProcessRunner):
+    pass
+
+class RemoteGPURunner(NetworkRunner):
     pass
 
 #################################################################
