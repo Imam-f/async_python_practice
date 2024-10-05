@@ -22,6 +22,14 @@ class networkprocess(process):
 
 ################################################################
 
+"""
+TODO:
+    # intilaize each client
+    # make process runner
+    # make future
+    # make network runner
+"""
+
 class Recursive_RPC:
     """
     This class is a scheduler and load balancer
