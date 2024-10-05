@@ -57,14 +57,20 @@ class Recursive_RPC:
                 case _:
                     raise TypeError
             self.connection[i] = runner
+        print(len(self.connection))
 
     def __enter__(self):
         return self
 
     def __exit__(self, exc_type, exc_value, traceback):
-        for c in self.connection:
-            if not c:
+        for i, c in enumerate(self.connection):
+            if c:
                 c.close()
+                self.connection[i] = None
+        if any(self.connection):
+            print(self.connection)
+            print(self.connection[0])
+            raise RuntimeError("Not all clients are closed")
 
     def apply(self, func, args):
         # Apply then wait
