@@ -56,7 +56,7 @@ class Recursive_RPC:
             self.connection[i] = runner
         if not any(self.connection):
             raise RuntimeError("No runner")
-        print(len(self.connection))
+        # print(len(self.connection))
 
     def __enter__(self):
         return self
@@ -224,14 +224,14 @@ def main():
         
         for number in numbers:
             print("Results 1:", pool.apply(worker, number))
-        
+
         # Apply the worker function to each number asynchronously
+        print()
         for number in numbers:
             async_result = pool.apply_async(worker, number)
             async_results.append(async_result)
         
         # Retrieve the results
-        print()
         for async_result in RPC_Future.as_completed(async_results):
             print("Results 2:", async_result)
         
