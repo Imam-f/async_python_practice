@@ -1,4 +1,4 @@
-from typing import Generator 
+from typing import Generator, TypeVar
 import time
 import random
 import concurrent.futures as ft
@@ -40,6 +40,9 @@ TODO:
     # make network runner
 """
 
+T = TypeVar("T")
+U = TypeVar("U")
+
 class Recursive_RPC:
     """
     This class is a scheduler and load balancer
@@ -57,6 +60,8 @@ class Recursive_RPC:
                 case _:
                     raise TypeError
             self.connection[i] = runner
+        if not any(self.connection):
+            raise RuntimeError("No runner")
         print(len(self.connection))
 
     def __enter__(self):
@@ -72,7 +77,7 @@ class Recursive_RPC:
             print(self.connection[0])
             raise RuntimeError("Not all clients are closed")
 
-    def apply(self, func, args):
+    def apply(self, func, /, *args, **kwarg) -> T:
         # Apply then wait
         runner: Runner = self.connection[0]
         if not runner:
@@ -82,7 +87,36 @@ class Recursive_RPC:
 
     def apply_async(self, func, /, *args, **kwargs) -> "RPC_Future":
         # Apply then give future object
-        return self.connection[0].run(func, *args, **kwargs)
+        runner: Runner = self.connection[0]
+        if not runner:
+            raise RuntimeError("No runner")
+        return runner.run(func, *args, **kwargs)
+    
+    def map_ordered(self, iter: list[U], func: callable[[U, ...], T], /, *args, **kwargs) -> T:
+        runner: Runner = self.connection[0]
+        if not runner:
+            raise RuntimeError("No runner")
+        future_list: list["RPC_Future"] = []
+        for i in iter:
+            r = runner.run(func, *([i].join(args)), **kwargs)
+            future_list.append(r)
+        return [f.get() for f in future_list]
+
+    def map_ordered_async(self, iter, func, /, *args, **kwargs) -> list["RPC_Future"]:
+        runner: Runner = self.connection[0]
+        if not runner:
+            raise RuntimeError("No runner")
+        future_list: list["RPC_Future"] = []
+        for i in iter:
+            r = runner.run(func, *([i].join(args)), **kwargs)
+            future_list.append(r)
+        return future_list
+    
+    def map(self, iter, func,  /, *args, **kwargs):
+        pass
+    
+    def map_async(self, iter, func, /, *args, **kwargs) -> list["RPC_Future"]:
+        pass
     
 class RPC_Future:
     """
@@ -99,10 +133,11 @@ class RPC_Future:
         return self.result.result()
 
     def status(self):
-        return self.check_scheduler() and self.result.done()
+        return self.result.done()
 
     @staticmethod
-    def as_completed(cls: list["RPC_Future"]) -> Generator["RPC_Future", None, None]:
+    def as_completed(cls_act: list["RPC_Future"]) -> Generator["RPC_Future", None, None]:
+        cls = cls_act.copy()
         while any(cls):
             for i, v in enumerate(cls):
                 if v and v.status():
@@ -116,27 +151,43 @@ class Runner:
     def __init__(self):
         pass
 
-    def run():
+    def run(self, func, /, *args, **kwargs):
+        pass
+
+    def close(self):
+        pass
+
+    def status(self):
         pass
 
 class ProcessRunner(Runner):
     def __init__(self, num: int):
-        super().__init__()
-        process_num = num if num >= 0 else multiprocessing.cpu_count()
+        self.process_num = num if num >= 0 else multiprocessing.cpu_count()
         self.pool = ft.ProcessPoolExecutor(
-                max_workers=process_num
+                max_workers=self.process_num
             )
+        self.process_handle: list[RPC_Future] = []
 
-    def run(self, func, /, *args, **kwargs):
+    def run(self, func, /, *args, **kwargs) -> RPC_Future:
         result = self.pool.submit(func, *args, **kwargs)
-        return RPC_Future(result, self)
+        self.process_handle.append(RPC_Future(result, self))
+        return self.process_handle[-1]
 
     def close(self):
         self.pool.shutdown()
         self.pool = None
 
-    def status(self):
-        return not not self.pool
+    def status(self) -> tuple[bool, int, int]:
+        for i,v in enumerate(self.process_handle):
+            if self.process_handle[i].status():
+                self.process_handle.remove(v)
+        
+        is_pool_active: bool = not not self.pool
+        process_num: int = self.process_num
+        not_done_count: int = len(self.process_handle)
+
+        # Connnection, max capacity, used capacity
+        return (is_pool_active, process_num, not_done_count)
 
 class NetworkRunner(Runner):
     pass
@@ -147,15 +198,21 @@ class GPURunner(ProcessRunner):
 class RemoteGPURunner(NetworkRunner):
     pass
 
+class FPGARunner(ProcessRunner):
+    pass
+
+class RemoteFPGARunner(ProcessRunner):
+    pass
+
 #################################################################
 
 def main():
     # Create a pool of worker processes
     # The number of processes is set to the number of CPU cores
     with Recursive_RPC(client=[
-            localprocess(-1),
-            # networkprocess("localhost", 5050, -1)
-        ]) as pool:
+                localprocess(-1),
+                # networkprocess("localhost", 5050, -1)
+            ]) as pool:
         
         # Create a list of numbers to process
         numbers = list(range(10))
