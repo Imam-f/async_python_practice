@@ -9,6 +9,7 @@ async def handle_client(reader, writer):
     while True:
         data = await reader.read(1024)
         if not data:
+            print("Done")
             break
         response = "Received: " + data.decode()
         writer.write(response.encode())
