@@ -1,15 +1,9 @@
-from typing import Generator, TypeVar
+from typing import Generator, TypeVar, Callable
 import time
 import random
 import concurrent.futures as ft
 import multiprocessing
 from dataclasses import dataclass
-
-def worker(number):
-    number, = number
-    """A simple worker function that simulates a time-consuming task."""
-    time.sleep(random.random() * 2)  # Simulate a time-consuming task
-    return number * number
 
 ##################################################################
 
@@ -35,7 +29,7 @@ TODO:
     # [done] make process runner
     # [done] make future
     # [done] make apply
-    # make map function
+    # [done] make map function
     # make proper scheduler
     # make network runner
 """
@@ -77,12 +71,12 @@ class Recursive_RPC:
             print(self.connection[0])
             raise RuntimeError("Not all clients are closed")
 
-    def apply(self, func, /, *args, **kwarg) -> T:
+    def apply(self, func, /, *args, **kwargs) -> T:
         # Apply then wait
         runner: Runner = self.connection[0]
         if not runner:
             raise RuntimeError("No runner")
-        result = runner.run(func, args)
+        result = runner.run(func, *args, **kwargs)
         return result.get()
 
     def apply_async(self, func, /, *args, **kwargs) -> "RPC_Future":
@@ -92,31 +86,38 @@ class Recursive_RPC:
             raise RuntimeError("No runner")
         return runner.run(func, *args, **kwargs)
     
-    def map_ordered(self, iter: list[U], func: callable[[U, ...], T], /, *args, **kwargs) -> T:
+    def map_ordered(self, iters: list[U], func: Callable[[U, any], T], /, *args, **kwargs) -> T:
         runner: Runner = self.connection[0]
         if not runner:
             raise RuntimeError("No runner")
         future_list: list["RPC_Future"] = []
-        for i in iter:
-            r = runner.run(func, *([i].join(args)), **kwargs)
+        for i in iters:
+            r = runner.run(func, *[i, *args], **kwargs)
             future_list.append(r)
         return [f.get() for f in future_list]
 
-    def map_ordered_async(self, iter, func, /, *args, **kwargs) -> list["RPC_Future"]:
+    def map_ordered_async(self, iters, func, /, *args, **kwargs) -> list["RPC_Future"]:
+        return self.map_async(iters, func, *args, **kwargs)
+    
+    def map(self, iters, func,  /, *args, **kwargs):
         runner: Runner = self.connection[0]
         if not runner:
             raise RuntimeError("No runner")
         future_list: list["RPC_Future"] = []
-        for i in iter:
-            r = runner.run(func, *([i].join(args)), **kwargs)
+        for i in iters:
+            r = runner.run(func, *[i, *args], **kwargs)
+            future_list.append(r)
+        return [f for f in RPC_Future.as_completed(future_list)]
+    
+    def map_async(self, iters, func, /, *args, **kwargs) -> list["RPC_Future"]:
+        runner: Runner = self.connection[0]
+        if not runner:
+            raise RuntimeError("No runner")
+        future_list: list["RPC_Future"] = []
+        for i in iters:
+            r = runner.run(func, *[i, *args], **kwargs)
             future_list.append(r)
         return future_list
-    
-    def map(self, iter, func,  /, *args, **kwargs):
-        pass
-    
-    def map_async(self, iter, func, /, *args, **kwargs) -> list["RPC_Future"]:
-        pass
     
 class RPC_Future:
     """
@@ -136,13 +137,15 @@ class RPC_Future:
         return self.result.done()
 
     @staticmethod
-    def as_completed(cls_act: list["RPC_Future"]) -> Generator["RPC_Future", None, None]:
+    def as_completed(cls_act: list["RPC_Future[T]"]) -> Generator[T, None, None]:
         cls = cls_act.copy()
         while any(cls):
             for i, v in enumerate(cls):
                 if v and v.status():
                     yield v.get()
                     cls[i] = None
+
+################################################################
 
 class Runner:
     """
@@ -190,21 +193,20 @@ class ProcessRunner(Runner):
         return (is_pool_active, process_num, not_done_count)
 
 class NetworkRunner(Runner):
+    def __init__(self, host: int, port: int, num: int, runner: list[Runner]):
+        pass
+
+class GPURunner(Runner):
     pass
 
-class GPURunner(ProcessRunner):
-    pass
-
-class RemoteGPURunner(NetworkRunner):
-    pass
-
-class FPGARunner(ProcessRunner):
-    pass
-
-class RemoteFPGARunner(ProcessRunner):
+class FPGARunner(Runner):
     pass
 
 #################################################################
+
+def worker(number):
+    time.sleep(random.random() * 2)  # Simulate a time-consuming task
+    return number * number
 
 def main():
     # Create a pool of worker processes
@@ -220,16 +222,36 @@ def main():
         # List to store the AsyncResult objects
         async_results = []
         
+        for number in numbers:
+            print("Results 1:", pool.apply(worker, number))
+        
         # Apply the worker function to each number asynchronously
         for number in numbers:
-            async_result = pool.apply_async(worker, (number,))
+            async_result = pool.apply_async(worker, number)
             async_results.append(async_result)
         
         # Retrieve the results
+        print()
         for async_result in RPC_Future.as_completed(async_results):
-            print("Results:", async_result)
+            print("Results 2:", async_result)
         
+        print()
+        for i in pool.map_ordered(numbers, worker):
+            print("Results 3:", i)
 
+        print()
+        for i in pool.map_ordered_async(numbers, worker):
+            print("Results 4:", i.get())
+
+        print()
+        for i in pool.map(numbers, worker):
+            print("Results 5:", i)
+        
+        print()
+        async_results = pool.map_async(numbers, worker)
+        for i in RPC_Future.as_completed(async_results):
+            print("Results 6:", i)
+        
 ################################################################
 
 if __name__ == "__main__":
