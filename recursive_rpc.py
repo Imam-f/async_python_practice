@@ -31,7 +31,16 @@ TODO:
     # [done] make apply
     # [done] make map function
     # make proper scheduler
+        # use status as condition
+        # sort by empty runner
+        # sort by latency
     # make network runner
+        # check if the folder exists
+        # if version mismatch delete folder
+        # zip the folder according to git files
+        # send the zip
+        # unzip
+        # run on remote
 """
 
 T = TypeVar("T")
@@ -251,7 +260,7 @@ def main():
         async_results = pool.map_async(numbers, worker)
         for i in RPC_Future.as_completed(async_results):
             print("Results 6:", i)
-        
+
 ################################################################
 
 if __name__ == "__main__":
