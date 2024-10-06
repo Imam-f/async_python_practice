@@ -205,6 +205,18 @@ class NetworkRunner(Runner):
     def __init__(self, host: int, port: int, num: int, runner: list[Runner]):
         pass
 
+    def run(self, func, /, *args, **kwargs) -> RPC_Future:
+        pass
+
+    def close(self):
+        pass
+
+    def status(self) -> tuple[bool, int, int]:
+        pass
+
+class NetworkService():
+    pass
+
 class GPURunner(Runner):
     pass
 
