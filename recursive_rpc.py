@@ -40,11 +40,53 @@ class CustomList:
         self.items = list(map(function, self.items))
         return CustomList(self.items)
     
+    def tee(self, out, function=None):
+        """Applies the given function to each item in the list and returns self for chaining."""
+        out.clear()
+        if function is None:
+            function = lambda x: x
+        for i in self.items:
+            out.append(function(i))
+        return CustomList(self.items)
+
+    def teemap(self, out, function=None):
+        """Applies the given function to each item in the list and returns self for chaining."""
+        import copy
+        out.clear()
+        if function is None:
+            function = lambda x: x
+        temp = []
+        for i in self.items:
+            i = function(i)
+            temp.append(i)
+            out.append(copy.copy(i))
+        return CustomList(temp)
+ 
     def take(self, n):
         """Takes the first n elements of the list and returns self for chaining."""
         if n > len(self.items):
             raise IndexError("List index out of range")
         self.items = self.items[:n]
+        return CustomList(self.items)
+
+    def skip(self, n):
+        """Skips the first n elements of the list and returns self for chaining."""
+        if n > len(self.items):
+            raise IndexError("List index out of range")
+        self.items = self.items[n:]
+        return CustomList(self.items)
+
+    def reduce(self, function, initial=None):
+        """Reduces the list using the given function."""
+        if initial is None:
+            accumulator = self.items[0]
+        for i in range(len(self.items) - 1):
+            accumulator = function(accumulator, self.items[i + 1])
+        return accumulator
+
+    def reverse(self):
+        """Reverses the list and returns self for chaining."""
+        self.items = self.items[::-1]
         return CustomList(self.items)
 
     def get(self, index):
@@ -66,6 +108,28 @@ class CustomList:
 
     def __len__(self):
         return len(self.items)
+
+def pipe(x, *fns):
+    """
+    pipe(x, f1, f2, (f3, (2), {})) == f3(f2(f1(x)), 2, **{})
+    """
+    for i in fns:
+        match i:
+            case (func, args, kwargs) if (callable(func) 
+                    and isinstance(args, tuple) 
+                    and isinstance(kwargs, dict)):
+                x = func(x, *args, **kwargs)
+            case (func, kwargs) if (callable(func) 
+                                    and isinstance(kwargs, tuple)):
+                x = func(x, *args)
+            case (func, kwargs) if (callable(func) 
+                                    and isinstance(kwargs, dict)):
+                x = func(x, **kwargs)
+            case func if callable(func):
+                x = func(x)
+            case _:
+                raise TypeError
+    return x 
 
 ################################################################
 
