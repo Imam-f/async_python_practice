@@ -21,6 +21,52 @@ class networkprocess(tupleprocess):
     port: int
     number: int
 
+class CustomList:
+    def __init__(self, items):
+        self.items = list(items)
+    
+    def sort(self, key=None, reverse=False):
+        """Sorts the list in place and returns self for chaining."""
+        self.items.sort(key=key, reverse=reverse)
+        return CustomList(self.items)
+    
+    def filter(self, function):
+        """Filters the list based on the given function and returns self for chaining."""
+        self.items = list(filter(function, self.items))
+        return CustomList(self.items)
+    
+    def map(self, function):
+        """Applies the given function to each item in the list and returns self for chaining."""
+        self.items = list(map(function, self.items))
+        return CustomList(self.items)
+    
+    def take(self, n):
+        """Takes the first n elements of the list and returns self for chaining."""
+        if n > len(self.items):
+            raise IndexError("List index out of range")
+        self.items = self.items[:n]
+        return CustomList(self.items)
+
+    def get(self, index):
+        """Returns the item at the given index."""
+        return self.items[index]
+    
+    def to_list(self):
+        """Returns the underlying list."""
+        return self.items
+
+    def __repr__(self):
+        return f"CustomList({self.items})"
+
+    def __getitem__(self, index):
+        return self.items[index]
+
+    def __setitem__(self, index, value):
+        raise NotImplementedError
+
+    def __len__(self):
+        return len(self.items)
+
 ################################################################
 
 """
@@ -30,7 +76,7 @@ TODO:
     # [done] make future
     # [done] make apply
     # [done] make map function
-    # make proper scheduler
+    # [done] make proper scheduler
         # use status as condition
         # sort by empty runner
         # sort by latency
@@ -80,9 +126,26 @@ class Recursive_RPC:
             print(self.connection[0])
             raise RuntimeError("Not all clients are closed")
 
+    def schedule(self) -> "Runner":
+        # start_time = time.time()
+        memo = {}
+        def get_status(i):
+            if memo.get(i):
+                return memo.get(i)
+            is_active, p_num, n_done_count, latency = i.status()
+            memo[i] = p_num - n_done_count, latency
+            return p_num - n_done_count, latency
+
+        # print(f"->: {time.time() - start_time:f} seconds")
+        return CustomList(self.connection).filter(
+                    lambda x: x is not None
+                ).sort(
+                    key=lambda x: get_status(x)[0], reverse=True
+                ).take(1)[0]
+
     def apply(self, func, /, *args, **kwargs) -> T:
         # Apply then wait
-        runner: Runner = self.connection[0]
+        runner: Runner = self.schedule()
         if not runner:
             raise RuntimeError("No runner")
         result = runner.run(func, *args, **kwargs)
@@ -90,17 +153,17 @@ class Recursive_RPC:
 
     def apply_async(self, func, /, *args, **kwargs) -> "RPC_Future":
         # Apply then give future object
-        runner: Runner = self.connection[0]
+        runner: Runner = self.schedule()
         if not runner:
             raise RuntimeError("No runner")
         return runner.run(func, *args, **kwargs)
     
     def map_ordered(self, iters: list[U], func: Callable[[U, any], T], /, *args, **kwargs) -> T:
-        runner: Runner = self.connection[0]
-        if not runner:
-            raise RuntimeError("No runner")
         future_list: list["RPC_Future"] = []
         for i in iters:
+            runner: Runner = self.schedule()
+            if not runner:
+                raise RuntimeError("No runner")
             r = runner.run(func, *[i, *args], **kwargs)
             future_list.append(r)
         return [f.get() for f in future_list]
@@ -109,21 +172,21 @@ class Recursive_RPC:
         return self.map_async(iters, func, *args, **kwargs)
     
     def map(self, iters, func,  /, *args, **kwargs):
-        runner: Runner = self.connection[0]
-        if not runner:
-            raise RuntimeError("No runner")
         future_list: list["RPC_Future"] = []
         for i in iters:
+            runner: Runner = self.schedule()
+            if not runner:
+                raise RuntimeError("No runner")
             r = runner.run(func, *[i, *args], **kwargs)
             future_list.append(r)
         return [f for f in RPC_Future.as_completed(future_list)]
     
     def map_async(self, iters, func, /, *args, **kwargs) -> list["RPC_Future"]:
-        runner: Runner = self.connection[0]
-        if not runner:
-            raise RuntimeError("No runner")
         future_list: list["RPC_Future"] = []
         for i in iters:
+            runner: Runner = self.schedule()
+            if not runner:
+                raise RuntimeError("No runner")
             r = runner.run(func, *[i, *args], **kwargs)
             future_list.append(r)
         return future_list
@@ -189,7 +252,7 @@ class ProcessRunner(Runner):
         self.pool.shutdown()
         self.pool = None
 
-    def status(self) -> tuple[bool, int, int]:
+    def status(self) -> tuple[bool, int, int, int]:
         for i,v in enumerate(self.process_handle):
             if self.process_handle[i].status():
                 self.process_handle.remove(v)
@@ -199,7 +262,7 @@ class ProcessRunner(Runner):
         not_done_count: int = len(self.process_handle)
 
         # Connnection, max capacity, used capacity
-        return (is_pool_active, process_num, not_done_count)
+        return (is_pool_active, process_num, not_done_count, 0)
 
 class NetworkRunner(Runner):
     def __init__(self, host: int, port: int, num: int, runner: list[Runner]):
@@ -243,35 +306,47 @@ def main():
         # List to store the AsyncResult objects
         async_results = []
         
+        start_time = time.time()
         for number in numbers:
             print("Results 1:", pool.apply(worker, number))
+        print(f"execution time: {time.time() - start_time:.2f} seconds")
 
         # Apply the worker function to each number asynchronously
+        start_time = time.time()
         print()
         for number in numbers:
             async_result = pool.apply_async(worker, number)
             async_results.append(async_result)
-        
+
         # Retrieve the results
         for async_result in RPC_Future.as_completed(async_results):
             print("Results 2:", async_result)
+        print(f"execution time: {time.time() - start_time:.2f} seconds")
         
+        start_time = time.time()
         print()
         for i in pool.map_ordered(numbers, worker):
             print("Results 3:", i)
+        print(f"execution time: {time.time() - start_time:.2f} seconds")
 
+        start_time = time.time()
         print()
         for i in pool.map_ordered_async(numbers, worker):
             print("Results 4:", i.get())
+        print(f"execution time: {time.time() - start_time:.2f} seconds")
 
+        start_time = time.time()
         print()
         for i in pool.map(numbers, worker):
             print("Results 5:", i)
-        
+        print(f"execution time: {time.time() - start_time:.2f} seconds")
+
+        start_time = time.time()
         print()
         async_results = pool.map_async(numbers, worker)
         for i in RPC_Future.as_completed(async_results):
             print("Results 6:", i)
+        print(f"execution time: {time.time() - start_time:.2f} seconds")
 
 ################################################################
 
@@ -280,3 +355,4 @@ if __name__ == "__main__":
     main()
     end_time = time.time()
     print(f"Total execution time: {end_time - start_time:.2f} seconds")
+
