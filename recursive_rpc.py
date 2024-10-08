@@ -119,10 +119,10 @@ def pipe(x, *fns):
                     and isinstance(args, tuple) 
                     and isinstance(kwargs, dict)):
                 x = func(x, *args, **kwargs)
-            case (func, kwargs) if (callable(func) 
-                                    and isinstance(kwargs, tuple)):
+            case (func, args) if (callable(func)
+                                    and isinstance(args, tuple)):
                 x = func(x, *args)
-            case (func, kwargs) if (callable(func) 
+            case (func, kwargs) if (callable(func)
                                     and isinstance(kwargs, dict)):
                 x = func(x, **kwargs)
             case func if callable(func):
