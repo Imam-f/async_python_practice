@@ -325,7 +325,7 @@ class ProcessRunner(Runner):
         process_num: int = self.process_num
         not_done_count: int = len(self.process_handle)
 
-        # Connnection, max capacity, used capacity
+        # Connnection, max capacity, used capacity, latency
         return (is_pool_active, process_num, not_done_count, 0)
 
 class NetworkRunner(Runner):
