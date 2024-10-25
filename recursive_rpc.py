@@ -39,6 +39,12 @@ class CustomList:
         """Applies the given function to each item in the list and returns self for chaining."""
         self.items = list(map(function, self.items))
         return CustomList(self.items)
+
+    def inspect(self):
+        """Print each element to screen and return as is"""
+        for i in self.items:
+            print(i)
+        return self
     
     def tee(self, out, function=None):
         """Applies the given function to each item in the list and returns self for chaining."""
@@ -145,11 +151,19 @@ TODO:
         # sort by empty runner
         # sort by latency
     # make network runner
-        # check if the folder exists
-        # if version mismatch delete folder
-        # zip the folder according to git files
-        # send the zip
-        # unzip
+        # network runner only an instance process 
+        # actually calculate resource like latency
+        # with ping i guess? or run unix time
+    # use ssh tunelling for security
+        # make network port breaching for local port?
+        # make parallel pipe + parllel custom list
+    # make proxy scheduler + runner
+        # only if necessary:`
+            # check if the folder exists
+            # if version mismatch delete folder
+            # zip the folder according to git files
+            # send the zip
+            # unzip
         # run on remote
 """
 
@@ -207,7 +221,7 @@ class Recursive_RPC:
                     key=lambda x: get_status(x)[0], reverse=True
                 ).take(1)[0]
 
-    def apply(self, func, /, *args, **kwargs) -> T:
+    def apply(self, func: Callable[[any], T], /, *args, **kwargs) -> T:
         # Apply then wait
         runner: Runner = self.schedule()
         if not runner:
@@ -329,10 +343,14 @@ class ProcessRunner(Runner):
         return (is_pool_active, process_num, not_done_count, 0)
 
 class NetworkRunner(Runner):
-    def __init__(self, host: int, port: int, num: int, runner: list[Runner]):
+    def __init__(self, host: int, port: int, num: int):
+        # setup environment
+        # start server
         pass
 
     def run(self, func, /, *args, **kwargs) -> RPC_Future:
+        # teleport function
+        # call it
         pass
 
     def close(self):
@@ -342,6 +360,12 @@ class NetworkRunner(Runner):
         pass
 
 class NetworkService():
+    """
+    I want to send this thing through network to run on other side
+    """
+    pass
+
+class ProxyRunner(Runner):
     pass
 
 class GPURunner(Runner):
