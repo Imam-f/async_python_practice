@@ -128,7 +128,7 @@ Without delay: 100000 element
 Sequential pipeline time: 0.0246 seconds
 Parallel pipeline time: 2.1585 seconds
 
-With delay: 1000 element
-Sequential pipeline time: 4.2753 seconds
-Parallel pipeline time: 1.5818 seconds
+With delay: 10000 element
+Sequential pipeline time: 45.6888 seconds
+Parallel pipeline time: 14.2928 seconds
 """
