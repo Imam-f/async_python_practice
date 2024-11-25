@@ -1,4 +1,9 @@
 import multiprocessing
+import os
+import inspect
+
+def func(*args, **kwargs):
+    pass
 
 def pipeable(func):
     # Decorator to make functions pipeable
@@ -30,7 +35,8 @@ def feeder(input_data, queue):
         queue.put(item)
     queue.put(None)  # Sentinel value to indicate the end
 
-def stage_worker(input_queue, output_queue, func):
+def stage_worker(input_queue, output_queue, func_str):
+    exec(func_str, globals())
     while True:
         item = input_queue.get()
         if item is None:
@@ -95,10 +101,27 @@ class Pipeline:
         self.processes.append(feeder_process)
 
         # Stage processes
-        for i, func in enumerate(self.stages):
-            p = multiprocessing.Process(target=stage_worker, args=(self.queues[i], self.queues[i+1], func))
-            p.start()
-            self.processes.append(p)
+        if os.name == "nt":
+            # print("The system is Windows.")
+            # pool = ft.ProcessPoolExecutor(
+            #     max_workers=8
+            # )
+            for i, func in enumerate(self.stages):
+                # func = dill.dumps(func)
+                source = inspect.getsource(func)
+                source = source.split("\n")[1:]
+                source[0] = source[0].replace(source[0].split(" ")[1].split("(")[0], "func")
+                source = "\n".join(source)
+                # print(source)
+                # result = pool.submit(stage_worker, (queues[i], queues[i+1], source)).result()
+                p = multiprocessing.Process(target=stage_worker, args=(self.queues[i], self.queues[i+1], source))
+                p.start()
+                self.processes.append(p)
+        else:
+            for i, func in enumerate(self.stages):
+                p = multiprocessing.Process(target=stage_worker, args=(self.queues[i], self.queues[i+1], func))
+                p.start()
+                self.processes.append(p)
 
         # Output collector
         return output_collector(self.queues[-1])
