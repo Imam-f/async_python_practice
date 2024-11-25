@@ -1,10 +1,14 @@
 import multiprocessing
 import functools
+import os
+
+import dill
+import concurrent.futures as ft
 
 # This one doesnt work:
-# Reason 1. local nested function cannot be pickled
-# Reason 2. decorator cannot be pickled
-# Reason 3. join might be unnecessary
+# Reason 1. local nested function cannot be pickled [done]
+# Reason 2. decorator cannot be pickled [done in linux][todo: windows]
+# Reason 3. join might be unnecessary [done]
 
 def feeder(input_data, queue):
     for item in input_data:
@@ -12,6 +16,11 @@ def feeder(input_data, queue):
     queue.put(None)  # Sentinel value to indicate the end
 
 def stage_worker(input_queue, output_queue, func):
+    
+    # if os.name == "nt":
+    #     func = dill.dumps(func)
+    # else:
+    #     func = func
     while True:
         item = input_queue.get()
         if item is None:
@@ -47,16 +56,32 @@ class Pipeline:
         processes = []
         queues = [multiprocessing.Queue() for _ in range(num_stages + 1)]
         
+        if os.name == "nt":
+            data = list(data)
+        
         # Start feeder process to put initial data into the first queue
         feeder_process = multiprocessing.Process(target=feeder, args=(data, queues[0]))
         feeder_process.start()
         processes.append(feeder_process)
 
         # Start each stage in a separate process
-        for i, func in enumerate(self.stages):
-            p = multiprocessing.Process(target=stage_worker, args=(queues[i], queues[i+1], func))
-            p.start()
-            processes.append(p)
+
+        if os.name == "nt":
+            print("The system is Windows.")
+            pool = ft.ProcessPoolExecutor(
+                max_workers=8
+            )
+            for i, func in enumerate(self.stages):
+                # func = dill.dumps(func)
+                result = pool.submit(stage_worker, (queues[i], queues[i+1], func)).result()
+                # p = multiprocessing.Process(target=stage_worker, args=(queues[i], queues[i+1], func))
+                # p.start()
+                processes.append(result)
+        else:
+            for i, func in enumerate(self.stages):
+                p = multiprocessing.Process(target=stage_worker, args=(queues[i], queues[i+1], func))
+                p.start()
+                processes.append(p)
 
         # Collect output from the last queue
         output_gen = output_collector(queues[-1])

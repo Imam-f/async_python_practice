@@ -140,12 +140,12 @@ if __name__ == '__main__':
     pipeline = range(5) | double | increment | to_string
 
     # Run the pipeline and collect all results
-    # result = pipeline.gather()
-    # print("Gather all results:", result)
+    result = pipeline.gather()
+    print("Gather all results:", result)
 
     # Build another pipeline
     pipeline2 = range(100) | double | increment | to_string
 
     # Run the pipeline and collect the first 5 results
-    # first_five = pipeline2.take(5)
-    # print("First five results:", first_five)
+    first_five = pipeline2.take(5)
+    print("First five results:", first_five)
