@@ -1,8 +1,8 @@
 import multiprocessing
-import functools
 import os
+import dis
+import builtins
 
-import dill
 import concurrent.futures as ft
 
 import inspect
@@ -104,8 +104,82 @@ class Pipeline:
 
         return output_gen
 
+def is_pure_function(func, _analyzed_funcs=None):
+    """
+    Check if a function is pure by analyzing bytecode, closure variables, and recursively checking function calls.
+    
+    Args:
+        func (callable): Function to check for purity
+        _analyzed_funcs (set, optional): Internal set to track already analyzed functions and prevent infinite recursion
+    
+    Returns:
+        bool: True if function appears to be pure, False otherwise
+    """
+    # Initialize set of analyzed functions to prevent infinite recursion
+    if _analyzed_funcs is None:
+        _analyzed_funcs = set()
+    
+    # Prevent analyzing the same function multiple times
+    if func in _analyzed_funcs:
+        return True
+    _analyzed_funcs.add(func)
+    
+    # Check closure variables
+    closure_vars = inspect.getclosurevars(func)
+    
+    # Check if any non-read-only closure variables exist
+    for var, value in closure_vars.nonlocals.items():
+        if not isinstance(value, (int, float, str, tuple, frozenset, bytes, type(None))):
+            return False
+    
+    for var, value in closure_vars.globals.items():
+        # Allow only immutable globals and builtins
+        if not (isinstance(value, (int, float, str, tuple, frozenset, bytes, type(None))) or 
+                hasattr(builtins, var)):
+            return False
+    
+    # Analyze bytecode
+    code = dis.Bytecode(func)
+    
+    # Tracks function calls to recursively check
+    function_calls = []
+    
+    impure_ops = {
+        'STORE_DEREF',   # Modifying closure variable
+        'STORE_GLOBAL',  # Modifying global variable
+    }
+    
+    for instr in code:
+        # Track function calls for recursive purity check
+        if instr.opname == 'CALL_FUNCTION':
+            # Try to get the function being called
+            try:
+                # This is a simplified approach and might not work for all cases
+                frame = inspect.currentframe()
+                function_calls.append(frame.f_locals.get(instr.argval))
+            except Exception:
+                # If we can't determine the function, assume it might not be pure
+                return False
+        
+        # Check for impure operations
+        if instr.opname in impure_ops:
+            return False
+    
+    # Recursively check purity of called functions
+    for called_func in function_calls:
+        if called_func and callable(called_func):
+            try:
+                if not is_pure_function(called_func, _analyzed_funcs):
+                    return False
+            except Exception:
+                return False
+    
+    return True
+
 def pipeable(func):
     # Decorator to make functions pipeable
+    if not is_pure_function(func):
+        raise ValueError("Function is not pure")
     return CallablePipe(func)
 
 class CallablePipe:
