@@ -39,7 +39,7 @@ def output_collector(output_queue):
 def parallel_pipeline(data, functions):
     num_stages = len(functions)
     processes = []
-    queues = [multiprocessing.Queue(maxsize=5000) for _ in range(num_stages + 1)]
+    queues = [multiprocessing.Queue(maxsize=1000) for _ in range(num_stages + 1)]
 
     feeder_process = multiprocessing.Process(target=feeder, args=(data, queues[0]), name="feeder")
     feeder_process.start()
