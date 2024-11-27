@@ -47,6 +47,7 @@ class EventLoop:
     def run(self):
         """Run the event loop until all tasks are complete."""
         while self._tasks or self._scheduled_tasks:
+            print(f"\t\tTime: {self._current_time}")
             # Process scheduled tasks
             while self._scheduled_tasks and \
                   self._scheduled_tasks[0][0] <= self._current_time:
@@ -92,17 +93,21 @@ class Task:
             # Send last result and get next value
             if self._last_yielded_value is None:
                 next_value = next(self._coroutine)
+                print(f"\tYielding next {next_value}")
             else:
+                print(f"\tYielding {self._last_yielded_value}")
                 next_value = self._coroutine.send(self._last_yielded_value)
 
             # Handle different types of yielded values
             if isinstance(next_value, Future):
+                print("\tAwait Future")
                 # If a Future is yielded, wait for its result
                 def on_future_done(result):
                     self._last_yielded_value = result
                 next_value.add_done_callback(on_future_done)
             elif isinstance(next_value, (int, float)):
                 # If a number is yielded, interpret as sleep
+                print(f"\tSleeping for {next_value} seconds")
                 future = Future()
                 loop.call_later(next_value, lambda: future.set_result(None))
                 next_value = future
