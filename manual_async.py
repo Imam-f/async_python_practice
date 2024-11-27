@@ -33,35 +33,39 @@ class EventLoop:
         self._scheduled_tasks = []
 
     def call_later(self, delay: float, callback: Callable):
-        """Schedule a callback to be run after a specific delay."""
         future = Future()
         heapq.heappush(self._scheduled_tasks, (self._current_time + delay, callback, future))
         return future
 
     def create_task(self, coroutine: Generator):
-        """Create a task from a generator coroutine."""
         task = Task(coroutine)
         self._tasks.append(task)
         return task
 
     def run(self):
-        """Run the event loop until all tasks are complete."""
         while self._tasks or self._scheduled_tasks:
-            print(f"\t\tTime: {self._current_time}")
-            # Process scheduled tasks
+            # Process scheduled tasks first
             while self._scheduled_tasks and \
                   self._scheduled_tasks[0][0] <= self._current_time:
-                _, callback, future = heapq.heappop(self._scheduled_tasks)
+                scheduled_time, callback, future = heapq.heappop(self._scheduled_tasks)
                 future.set_result(callback())
 
             # Process active tasks
             completed_tasks = []
-            for task in self._tasks:
+            for task in self._tasks[:]:  # Create a copy to iterate safely
                 try:
+                    # If task is waiting for a future, skip it
+                    # if hasattr(task, '_waiting_future') and not task._waiting_future.done():
+                    if task._waiting_future is not None and not task._waiting_future.done():
+                        continue
+
                     # Resume task and send/throw result from previous yield
-                    result = task.step()
+                    next_value = task.step()
                     
-                    # If task is done, mark for removal
+                    # Handle futures and scheduled tasks
+                    if isinstance(next_value, Future):
+                        task._waiting_future = next_value
+                    
                     if task.done():
                         completed_tasks.append(task)
                 except StopIteration:
@@ -71,14 +75,14 @@ class EventLoop:
             for task in completed_tasks:
                 self._tasks.remove(task)
 
-            # If no tasks are ready, advance time
+            # Advance time if no tasks are ready
             if not self._tasks:
                 if self._scheduled_tasks:
                     self._current_time = self._scheduled_tasks[0][0]
                 else:
                     break
 
-            # Minimal time advancement to prevent infinite loop
+            # Minimal time advancement
             self._current_time += 0.01
 
 class Task:
@@ -86,28 +90,24 @@ class Task:
         self._coroutine = coroutine
         self._future = Future()
         self._last_yielded_value = None
+        self._waiting_future = None
 
     def step(self) -> Any:
-        """Step through the coroutine, handling different yield types."""
         try:
             # Send last result and get next value
             if self._last_yielded_value is None:
                 next_value = next(self._coroutine)
-                print(f"\tYielding next {next_value}")
             else:
-                print(f"\tYielding {self._last_yielded_value}")
                 next_value = self._coroutine.send(self._last_yielded_value)
 
             # Handle different types of yielded values
             if isinstance(next_value, Future):
-                print("\tAwait Future")
                 # If a Future is yielded, wait for its result
                 def on_future_done(result):
                     self._last_yielded_value = result
                 next_value.add_done_callback(on_future_done)
             elif isinstance(next_value, (int, float)):
                 # If a number is yielded, interpret as sleep
-                print(f"\tSleeping for {next_value} seconds")
                 future = Future()
                 loop.call_later(next_value, lambda: future.set_result(None))
                 next_value = future
@@ -130,9 +130,7 @@ class Task:
 # Global event loop
 loop = EventLoop()
 
-# Example usage demonstrators
 def async_fetch(url):
-    """Simulate an async network fetch"""
     future = Future()
     
     def mock_network_call():
@@ -145,13 +143,10 @@ def async_fetch(url):
 
 def async_task_example():
     def example_coroutine():
-        # Simulate async operations with yields
         print("Start of coroutine")
         
-        # Simulating waiting/sleeping
         yield 1.0  # Sleep for 1 second
         
-        # Simulating async fetch
         result1 = yield async_fetch("https://example.com")
         print(f"First fetch result: {result1}")
         
