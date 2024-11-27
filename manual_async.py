@@ -38,7 +38,7 @@ class EventLoop:
         return future
 
     def create_task(self, coroutine: Generator):
-        task = Task(coroutine)
+        task = Task(coroutine, self)
         self._tasks.append(task)
         return task
 
@@ -86,11 +86,12 @@ class EventLoop:
             self._current_time += 0.01
 
 class Task:
-    def __init__(self, coroutine: Generator):
+    def __init__(self, coroutine: Generator, loop: EventLoop):
         self._coroutine = coroutine
         self._future = Future()
         self._last_yielded_value = None
         self._waiting_future = None
+        self.loop = loop
 
     def step(self) -> Any:
         try:
@@ -109,7 +110,7 @@ class Task:
             elif isinstance(next_value, (int, float)):
                 # If a number is yielded, interpret as sleep
                 future = Future()
-                loop.call_later(next_value, lambda: future.set_result(None))
+                self.loop.call_later(next_value, lambda: future.set_result(None))
                 next_value = future
             else:
                 # For other types, pass along
@@ -157,10 +158,28 @@ def async_task_example():
         
         return "Coroutine completed successfully"
 
+    def example_coroutine_two():
+        print("Start of coroutine two")
+        
+        yield 0.75  # Sleep for 1 second
+        
+        result1 = yield async_fetch("https://example_one.com")
+        print(f"First fetch result: {result1}")
+        
+        yield 0.5  # Another short sleep
+        
+        result2 = yield async_fetch("https://another-example-two.com")
+        print(f"Second fetch result: {result2}")
+        
+        return "Coroutine two completed successfully"
+    
     # Create and run the task
     task = loop.create_task(example_coroutine())
+    task2 = loop.create_task(example_coroutine_two())
+    loop.call_later(2.0, lambda: print("Time's up!"))
     loop.run()
     print("Task result:", task.result())
+    print("Task result:", task2.result())
 
 # Demonstrate the async system
 if __name__ == "__main__":
