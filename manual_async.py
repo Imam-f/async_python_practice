@@ -43,6 +43,40 @@ class Future:
     def cancelled(self):
         return self._cancelled
 
+class HeapItem:
+    def __init__(self, time, callback, future):
+        self.time = time
+        self.callback = callback
+        self.future = future
+    
+    def __getitem__(self, key):
+        if key == 0:
+            return self.time
+        elif key == 1:
+            return self.callback
+        elif key == 2:
+            return self.future
+        else:
+            raise IndexError
+
+    def __lt__(self, other):
+        return self.time < other.time
+
+    def __eq__(self, other):
+        return self.time == other.time
+
+    def __gt__(self, other):
+        return self.time > other.time
+
+    def __le__(self, other):
+        return self.time <= other.time
+
+    def __ge__(self, other):
+        return self.time >= other.time
+    
+    def __ne__(self, other):
+        return self.time != other.time
+
 class EventLoop:
     def __init__(self):
         self._tasks = []
@@ -52,7 +86,7 @@ class EventLoop:
     def call_later(self, delay: float, callback: Callable):
         future = Future()
         heapq.heappush(self._scheduled_tasks, 
-                       (self._current_time + delay, callback, future))
+                       HeapItem(self._current_time + delay, callback, future))
         return future
 
     def create_task(self, coroutine: Generator):
@@ -66,7 +100,11 @@ class EventLoop:
             # print(self._current_time)
             while self._scheduled_tasks and \
                   self._scheduled_tasks[0][0] <= self._current_time:
-                scheduled_time, callback, future = heapq.heappop(self._scheduled_tasks)
+                heap = heapq.heappop(self._scheduled_tasks)
+                scheduled_time = heap[0]
+                callback = heap[1]
+                future = heap[2]
+                # print("\t=>", len(self._scheduled_tasks), future._cancelled)
                 if not future.cancelled():
                     future.set_result(callback())
                 # try:
@@ -87,8 +125,11 @@ class EventLoop:
                 try:
                     # Skip cancelled tasks
                     if task._future.cancelled():
-                        print("Task was cancelled")
+                        # print("Task was cancelled")
                         completed_tasks.append(task)
+                        # if task._waiting_future is not None:
+                            # task._waiting_future.cancel()
+                            # print("Task waiting future was cancelled", task._waiting_future.cancelled())
                         continue
 
                     # Skip tasks waiting on cancelled futures
@@ -103,10 +144,6 @@ class EventLoop:
 
                     # Resume task and send/throw result from previous yield
                     next_value = task.step()
-                    
-                    # Handle futures and scheduled tasks
-                    if isinstance(next_value, Future):
-                        task._waiting_future = next_value
                     
                     if task.done():
                         completed_tasks.append(task)
@@ -128,7 +165,7 @@ class EventLoop:
                     break
 
             # Minimal time advancement
-            self._current_time += 0.01
+            self._current_time += 0.1
 
 class Task:
     def __init__(self, coroutine: Generator, loop: EventLoop):
@@ -139,6 +176,7 @@ class Task:
         self.loop = loop
 
     def step(self) -> Any:
+        # print("Step")
         try:
             # Send last result and get next value
             if self._last_yielded_value is None:
@@ -152,11 +190,13 @@ class Task:
                 def on_future_done(result):
                     self._last_yielded_value = result
                 next_value.add_done_callback(on_future_done)
+                self._waiting_future = next_value
             elif isinstance(next_value, (int, float)):
                 # If a number is yielded, interpret as sleep
                 future = Future()
                 self.loop.call_later(next_value, lambda: future.set_result(None))
                 next_value = future
+                self._waiting_future = next_value
             else:
                 # For other types, pass along
                 self._last_yielded_value = next_value
@@ -169,6 +209,9 @@ class Task:
 
     def cancel(self):
         self._future.cancel()
+        if self._waiting_future is not None:
+            self._waiting_future.cancel()
+        # print("cancelled", self._waiting_future.cancelled())
         """Cancel the task and raise CancelledError in the coroutine."""
         # raise CancelledError()
 
@@ -189,6 +232,7 @@ def async_fetch(url):
         return f"Data from {url}"
     
     # Simulate network delay
+    # print("scheduled at ", loop._current_time, url)
     loop.call_later(1.0, lambda: future.set_result(mock_network_call()))
     return future
 
@@ -196,7 +240,7 @@ def async_task_example():
     def example_coroutine():
         print("1 Start of coroutine")
         
-        yield 1.0  # Sleep for 1 second
+        yield 0.75  # Sleep for 1 second
         
         result1 = yield async_fetch("https://example.com")
         print(f"1 First fetch result: {result1}")
@@ -211,7 +255,7 @@ def async_task_example():
     def example_coroutine_two():
         print("2 Start of coroutine two")
         
-        yield 0.75  # Sleep for 1 second
+        yield 1.0  # Sleep for 1 second
         
         result1 = yield async_fetch("https://example_one.com")
         print(f"2 First fetch result: {result1}")
@@ -229,7 +273,7 @@ def async_task_example():
     loop.call_later(2.0, lambda: print("Time's up!"))
     
     # Simulate cancellation after 0.5 seconds
-    loop.call_later(2.1, lambda: task.cancel())
+    loop.call_later(2.0, lambda: task.cancel())
     # loop.call_later(0.1, task.cancel)
     
     loop.run()
