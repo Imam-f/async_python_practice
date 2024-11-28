@@ -97,27 +97,14 @@ class EventLoop:
     def run(self):
         while self._tasks or self._scheduled_tasks:
             # Process scheduled tasks first
-            # print(self._current_time)
             while self._scheduled_tasks and \
                   self._scheduled_tasks[0][0] <= self._current_time:
                 heap = heapq.heappop(self._scheduled_tasks)
                 scheduled_time = heap[0]
                 callback = heap[1]
                 future = heap[2]
-                # print("\t=>", len(self._scheduled_tasks), future._cancelled)
                 if not future.cancelled():
                     future.set_result(callback())
-                # try:
-                #     if not future.cancelled():
-                #         future.set_result(callback())
-                # except CancelledError:
-                #     # Explicitly handle CancelledError
-                #     print("Cancelled scheduled task")
-                #     future.cancel()
-                # except Exception as e:
-                #     # Optionally log or handle other exceptions
-                #     print(f"Exception in scheduled task: {e}")
-                #     future.cancel()
 
             # Process active tasks
             completed_tasks = []
@@ -125,11 +112,7 @@ class EventLoop:
                 try:
                     # Skip cancelled tasks
                     if task._future.cancelled():
-                        # print("Task was cancelled")
                         completed_tasks.append(task)
-                        # if task._waiting_future is not None:
-                            # task._waiting_future.cancel()
-                            # print("Task waiting future was cancelled", task._waiting_future.cancelled())
                         continue
 
                     # Skip tasks waiting on cancelled futures
@@ -149,9 +132,6 @@ class EventLoop:
                         completed_tasks.append(task)
                 except StopIteration:
                     completed_tasks.append(task)
-                # except CancelledError:
-                #     task._future.cancel()
-                #     completed_tasks.append(task)
 
             # Remove completed tasks
             for task in completed_tasks:
@@ -176,7 +156,6 @@ class Task:
         self.loop = loop
 
     def step(self) -> Any:
-        # print("Step")
         try:
             # Send last result and get next value
             if self._last_yielded_value is None:
@@ -211,9 +190,6 @@ class Task:
         self._future.cancel()
         if self._waiting_future is not None:
             self._waiting_future.cancel()
-        # print("cancelled", self._waiting_future.cancelled())
-        """Cancel the task and raise CancelledError in the coroutine."""
-        # raise CancelledError()
 
     def done(self):
         return self._future.done()
@@ -232,7 +208,6 @@ def async_fetch(url):
         return f"Data from {url}"
     
     # Simulate network delay
-    # print("scheduled at ", loop._current_time, url)
     loop.call_later(1.0, lambda: future.set_result(mock_network_call()))
     return future
 
@@ -274,7 +249,6 @@ def async_task_example():
     
     # Simulate cancellation after 0.5 seconds
     loop.call_later(2.0, lambda: task.cancel())
-    # loop.call_later(0.1, task.cancel)
     
     loop.run()
     
