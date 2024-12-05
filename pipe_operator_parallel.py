@@ -9,6 +9,8 @@ import inspect
 import time
 import types
 
+import threading
+
 # This one doesnt work:
 # Reason 1. local nested function cannot be pickled [done]
 # Reason 2. decorator cannot be pickled [done in linux][todo: windows]
@@ -78,7 +80,10 @@ class Pipeline:
         
         # Check if data is generator
         if os.name == "nt" and isinstance(data, types.GeneratorType):
-            feeder(data, queues[0])
+            # feeder(data, queues[0])
+            sender_thread = threading.Thread(target=feeder, args=(data, queues[0]))
+            sender_thread.start()
+            processes.append(sender_thread)
         else:
             # Start feeder process to put initial data into the first queue
             feeder_process = multiprocessing.Process(target=feeder, args=(data, queues[0]))
