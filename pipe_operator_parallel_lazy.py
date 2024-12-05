@@ -172,6 +172,7 @@ class Pipeline:
         self.queues = [multiprocessing.Queue(maxsize=1000) for _ in range(num_stages + 1)]
 
         # Feeder process
+        print(data, data.__class__.__name__)
         feeder_process = multiprocessing.Process(target=feeder, args=(data, self.queues[0]))
         feeder_process.start()
         self.processes.append(feeder_process)

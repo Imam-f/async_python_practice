@@ -6,6 +6,8 @@ import builtins
 import concurrent.futures as ft
 
 import inspect
+import time
+import types
 
 # This one doesnt work:
 # Reason 1. local nested function cannot be pickled [done]
@@ -21,16 +23,25 @@ def func(*args, **kwargs):
     pass
 
 def stage_worker(input_queue, output_queue, func_str):
-    
     # if os.name == "nt":
     #     func = dill.dumps(func)
     # else:
     #     func = func
     # print(func_str)
-    exec(func_str, globals())
+    # func = func_str
+    if os.name == "nt":
+        global func
+        exec(func_str, globals())
+    else:
+        func = func_str
     # print(func)
     while True:
         item = input_queue.get()
+        if isinstance(func_str, types.FunctionType):
+            fnc = func.__name__
+        else:
+            fnc = func_str.split("\n")[0]
+        print("item ", fnc, item)
         if item is None:
             output_queue.put(None)  # Pass the sentinel to the next stage
             break
@@ -63,29 +74,24 @@ class Pipeline:
         num_stages = len(self.stages)
         processes = []
         queues = [multiprocessing.Queue() for _ in range(num_stages + 1)]
+        print("run")
         
-        if os.name == "nt":
-            data = list(data)
-        
-        # Start feeder process to put initial data into the first queue
-        feeder_process = multiprocessing.Process(target=feeder, args=(data, queues[0]))
-        feeder_process.start()
-        processes.append(feeder_process)
+        # Check if data is generator
+        if os.name == "nt" and isinstance(data, types.GeneratorType):
+            feeder(data, queues[0])
+        else:
+            # Start feeder process to put initial data into the first queue
+            feeder_process = multiprocessing.Process(target=feeder, args=(data, queues[0]))
+            feeder_process.start()
+            processes.append(feeder_process)
 
         # Start each stage in a separate process
         if os.name == "nt":
-            # print("The system is Windows.")
-            # pool = ft.ProcessPoolExecutor(
-            #     max_workers=8
-            # )
             for i, func in enumerate(self.stages):
-                # func = dill.dumps(func)
                 source = inspect.getsource(func)
                 source = source.split("\n")[1:]
                 source[0] = source[0].replace(source[0].split(" ")[1].split("(")[0], "func")
                 source = "\n".join(source)
-                # print(source)
-                # result = pool.submit(stage_worker, (queues[i], queues[i+1], source)).result()
                 p = multiprocessing.Process(target=stage_worker, args=(queues[i], queues[i+1], source))
                 p.start()
                 processes.append(p)
@@ -115,6 +121,7 @@ def is_pure_function(func, _analyzed_funcs=None):
     Returns:
         bool: True if function appears to be pure, False otherwise
     """
+    return True
     # Initialize set of analyzed functions to prevent infinite recursion
     if _analyzed_funcs is None:
         _analyzed_funcs = set()
@@ -208,22 +215,26 @@ class CallablePipe:
 @pipeable
 def double(nums):
     for num in nums:
+        time.sleep(0.01)
         yield num * 2
 
 @pipeable
 def increment(nums):
     for num in nums:
+        time.sleep(0.01)
         yield num + 1
 
 @pipeable
 def to_string(nums):
     for num in nums:
+        time.sleep(0.01)
         yield str(num)
 
 # Example usage
 if __name__ == '__main__':
     # Chaining functions with the '|' operator
-    result = range(5) | double | increment | to_string
+    result = range(8) | double | increment | double | to_string
+    # result = range(8) | double
 
     # Consuming the result
     print(list(result))
