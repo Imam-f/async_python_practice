@@ -6,6 +6,40 @@ class CancelledError(Exception):
     """Exception raised when a task is cancelled."""
     pass
 
+class HeapItem:
+    def __init__(self, time, callback, future):
+        self.time = time
+        self.callback = callback
+        self.future = future
+    
+    def __getitem__(self, key):
+        if key == 0:
+            return self.time
+        elif key == 1:
+            return self.callback
+        elif key == 2:
+            return self.future
+        else:
+            raise IndexError
+
+    def __lt__(self, other):
+        return self.time < other.time
+
+    def __eq__(self, other):
+        return self.time == other.time
+
+    def __gt__(self, other):
+        return self.time > other.time
+
+    def __le__(self, other):
+        return self.time <= other.time
+
+    def __ge__(self, other):
+        return self.time >= other.time
+    
+    def __ne__(self, other):
+        return self.time != other.time
+
 class Future:
     def __init__(self):
         self._result = None
@@ -42,40 +76,6 @@ class Future:
 
     def cancelled(self):
         return self._cancelled
-
-class HeapItem:
-    def __init__(self, time, callback, future):
-        self.time = time
-        self.callback = callback
-        self.future = future
-    
-    def __getitem__(self, key):
-        if key == 0:
-            return self.time
-        elif key == 1:
-            return self.callback
-        elif key == 2:
-            return self.future
-        else:
-            raise IndexError
-
-    def __lt__(self, other):
-        return self.time < other.time
-
-    def __eq__(self, other):
-        return self.time == other.time
-
-    def __gt__(self, other):
-        return self.time > other.time
-
-    def __le__(self, other):
-        return self.time <= other.time
-
-    def __ge__(self, other):
-        return self.time >= other.time
-    
-    def __ne__(self, other):
-        return self.time != other.time
 
 class EventLoop:
     def __init__(self):
