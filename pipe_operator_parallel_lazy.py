@@ -112,7 +112,11 @@ def feeder(input_data, queue):
     queue.put(None)  # Sentinel value to indicate the end
 
 def stage_worker(input_queue, output_queue, func_str):
-    exec(func_str, globals())
+    if os.name == "nt":
+        global func
+        exec(func_str, globals())
+    else:
+        func = func_str
     while True:
         item = input_queue.get()
         if item is None:
