@@ -115,7 +115,7 @@ class Pipeline:
 
         return output_gen
 
-def is_pure_function(func, _analyzed_funcs=None):
+def is_pure_function(func, _analyzed_funcs=None, whitelist=None):
     """
     Check if a function is pure by analyzing bytecode, closure variables, and recursively checking function calls.
     
@@ -126,10 +126,11 @@ def is_pure_function(func, _analyzed_funcs=None):
     Returns:
         bool: True if function appears to be pure, False otherwise
     """
-    return True
     # Initialize set of analyzed functions to prevent infinite recursion
     if _analyzed_funcs is None:
         _analyzed_funcs = set()
+    if whitelist is None:
+        whitelist = []
     
     # Prevent analyzing the same function multiple times
     if func in _analyzed_funcs:
@@ -146,6 +147,8 @@ def is_pure_function(func, _analyzed_funcs=None):
     
     for var, value in closure_vars.globals.items():
         # Allow only immutable globals and builtins
+        if var in whitelist:
+            continue
         if not (isinstance(value, (int, float, str, tuple, frozenset, bytes, type(None))) or 
                 hasattr(builtins, var)):
             return False
@@ -190,7 +193,7 @@ def is_pure_function(func, _analyzed_funcs=None):
 
 def pipeable(func):
     # Decorator to make functions pipeable
-    if not is_pure_function(func):
+    if not is_pure_function(func, whitelist=['time']):
         raise ValueError("Function is not pure")
     return CallablePipe(func)
 
