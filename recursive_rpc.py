@@ -5,6 +5,10 @@ import concurrent.futures as ft
 import multiprocessing
 from dataclasses import dataclass
 
+
+
+import rpyc
+
 ##################################################################
 
 @dataclass
@@ -158,7 +162,7 @@ TODO:
         # make network port breaching for local port?
         # make parallel pipe + parllel custom list
     # make proxy scheduler + runner
-        # only if necessary:`
+        # only if necessary:
             # check if the folder exists
             # if version mismatch delete folder
             # zip the folder according to git files
@@ -178,15 +182,17 @@ class Recursive_RPC:
     def __init__(self, client: list[tupleprocess]):
         self.client: list[tupleprocess] = client
         self.connection: list[None|Runner] = [None for i in range(len(client))]
-        for i, v in enumerate(client):
-            match v:
+        self.weight: list[int] = [0 for i in range(len(self.connection))]
+        for index, val in enumerate(client):
+            match val:
                 case localprocess(i):
                     runner = ProcessRunner(i)
                 case networkprocess(i, j, k):
                     runner = NetworkRunner(i, j, k)
                 case _:
                     raise TypeError
-            self.connection[i] = runner
+            self.weight[index] = runner.process_num
+            self.connection[index] = runner
         if not any(self.connection):
             raise RuntimeError("No runner")
         # print(len(self.connection))
@@ -215,11 +221,18 @@ class Recursive_RPC:
             return p_num - n_done_count, latency
 
         # print(f"->: {time.time() - start_time:f} seconds")
-        return CustomList(self.connection).filter(
-                    lambda x: x is not None
-                ).sort(
-                    key=lambda x: get_status(x)[0], reverse=True
-                ).take(1)[0]
+        
+        # return CustomList(self.connection).filter(
+        #             lambda x: x is not None
+        #         ).sort(
+        #             key=lambda x: get_status(x)[0], reverse=True
+        #         ).take(1)[0]
+        # rand = random.randint(0, len(self.connection) - 1)
+        # return self.connection[rand]
+        rand = random.choices(self.connection, weights=self.weight, k=1)[0]
+        return rand
+        # return self.connection[0]
+        # return self.connection[1]
 
     def apply(self, func: Callable[[any], T], /, *args, **kwargs) -> T:
         # Apply then wait
@@ -268,6 +281,15 @@ class Recursive_RPC:
             r = runner.run(func, *[i, *args], **kwargs)
             future_list.append(r)
         return future_list
+    
+    @staticmethod
+    def as_completed(cls_act: list["RPC_Future[T]"]) -> Generator[T, None, None]:
+        cls = cls_act.copy()
+        while any(cls):
+            for i, v in enumerate(cls):
+                if v and v.status():
+                    yield v.get()
+                    cls[i] = None
     
 class RPC_Future:
     """
@@ -342,22 +364,118 @@ class ProcessRunner(Runner):
         # Connnection, max capacity, used capacity, latency
         return (is_pool_active, process_num, not_done_count, 0)
 
+# import sys
+# print(sys.getswitchinterval())
+
+import inspect
+def stage_worker(func_str, *args, **kwargs):
+    print(func_str)
+    exec(func_str, globals())
+    return worker(*args, **kwargs)
+
 class NetworkRunner(Runner):
     def __init__(self, host: int, port: int, num: int):
-        # setup environment
         # start server
-        pass
+        self.host = host
+        self.port = port
+        # self.process_num = num if num >= 0 else multiprocessing.cpu_count()
+        self.process_num = 1
+        self.conn = rpyc.classic.connect(host, port=port)
+        self.conn.execute("import time")
+        self.conn.execute("import inspect")
+        self.conn.execute("import random")
+        # setup environment
+        # self.pool: ft.ProcessPoolExecutor = self.conn.modules.\
+        #     concurrent.futures.ProcessPoolExecutor(
+        #         max_workers=self.process_num
+        #     )
+        self.conn.execute("import concurrent.futures as ft")
+        abc = []
+        for i in range(4):
+            temp = rpyc.classic.connect(host, port=port)
+            temp.execute("import os")
+            print(temp.eval("os.getpid()"))
+            abc.append(temp)
+        
+        for i in range(4):
+            abc[i].close()
+        
+            
+        # self.conn.execute("def stage_worker(func_str, *args, **kwargs):\n    exec(func_str, globals())\n    return worker(*args, **kwargs)\n")
+        # self.conn.execute("function_def = \"def stage_worker(func_str, *args, **kwargs):\\n    exec(func_str, globals())\\n    return worker(*args, **kwargs)\\n\"")
+        # print(self.conn.eval("function_def"))
+        # print(self.conn.eval("dir()"))
+        # print(self.conn.eval("globals()"))
+        # self.conn.execute("exec(function_def, globals())")
+        self.conn.teleport(stage_worker)
+        # print(self.conn.eval("dir()"))
+        # print(self.conn.eval("globals()"))
+        # print(self.conn.eval("dir(stage_worker)"))
+        print(self.conn.eval("inspect.getsource(stage_worker)"))
+        
+        self.conn.execute(f"pool = ft.ThreadPoolExecutor(max_workers={self.process_num})")
+        # self.conn.execute(f"pool = ft.ProcessPoolExecutor(max_workers={self.process_num})")
+
+        self.process_handle: list[RPC_Future] = []
 
     def run(self, func, /, *args, **kwargs) -> RPC_Future:
         # teleport function
-        # call it
-        pass
+        # self.conn.teleport(func)
+        self.conn.namespace["func_str"] = inspect.getsource(func)
+        self.conn.namespace["args"] = args
+        self.conn.namespace["kwargs"] = kwargs
+        
+        
+        # source = inspect.getsource(func)
+        # source = source.split("\n")[1:]
+        # source[0] = source[0].replace(source[0].split(" ")[1].split("(")[0], "func")
+        # source = "\n".join(source)
+        
+        # def stage_worker(input_queue, output_queue, func_str):
+            # global func
+            # exec(func_str, globals())
+            
+            # if os.name == "nt":
+            #     global func
+            #     exec(func_str, globals())
+            # else:
+            #     func = func_str
+            # while True:
+            #     item = input_queue.get()
+            #     if item is None:
+            #         output_queue.put(None)  # Pass the sentinel to the next stage
+            #         break
+            #     for result in func([item]):
+            #         output_queue.put(result)
+
+        # print(self.conn.eval("inspect.getsource(worker)"))
+        # self.conn.execute("func_str = inspect.getsource(worker)")
+        # self.conn.execute("arg_func = func_str + \"\\n\"")
+        # self.conn.execute("arg_func += \"worker(*args, **kwargs)\"")
+        # print(self.conn.eval("arg_func"))
+        # print(self.conn.execute("result = pool.submit(exec, arg_func, globals())"))
+        # print(self.conn.eval("pool.submit(eval, \"56\").result()"))
+        self.conn.execute(f"result = pool.submit(stage_worker, func_str, *args, **kwargs)")
+        result = self.conn.namespace["result"]
+        self.process_handle.append(RPC_Future(result, self))
+        # print("**********", result)
+        return self.process_handle[-1]
 
     def close(self):
-        pass
+        self.conn.close()
+        self.pool = None
 
     def status(self) -> tuple[bool, int, int]:
-        pass
+        for i,v in enumerate(self.process_handle):
+            if self.process_handle[i].status():
+                self.process_handle.remove(v)
+        
+        is_pool_active: bool = not not self.pool
+        process_num: int = self.process_num
+        not_done_count: int = len(self.process_handle)
+
+        # Connnection, max capacity, used capacity, latency
+        return (is_pool_active, process_num, not_done_count, 0)
 
 class NetworkService():
     """
@@ -377,7 +495,10 @@ class FPGARunner(Runner):
 #################################################################
 
 def worker(number):
-    time.sleep(random.random() * 2)  # Simulate a time-consuming task
+    # time.sleep(random.random() * 2)  # Simulate a time-consuming task
+    sum = 0
+    for i in range(30000000):
+        sum += i
     return number * number
 
 def main():
@@ -385,7 +506,7 @@ def main():
     # The number of processes is set to the number of CPU cores
     with Recursive_RPC(client=[
                 localprocess(-1),
-                # networkprocess("localhost", 5050, -1)
+                networkprocess("localhost", 18812, -1)
             ]) as pool:
         
         # Create a list of numbers to process
