@@ -2,9 +2,11 @@ from typing import Generator, TypeVar, Callable
 import time
 import random
 import concurrent.futures as ft
-import multiprocessing
+# import multiprocessing
 from dataclasses import dataclass
 
+import multiprocess as multiprocessing
+from multiprocess import Pool
 
 
 import rpyc
@@ -229,10 +231,10 @@ class Recursive_RPC:
         #         ).take(1)[0]
         # rand = random.randint(0, len(self.connection) - 1)
         # return self.connection[rand]
-        rand = random.choices(self.connection, weights=self.weight, k=1)[0]
-        return rand
+        # rand = random.choices(self.connection, weights=self.weight, k=1)[0]
+        # return rand
         # return self.connection[0]
-        # return self.connection[1]
+        return self.connection[1]
 
     def apply(self, func: Callable[[any], T], /, *args, **kwargs) -> T:
         # Apply then wait
@@ -295,7 +297,7 @@ class RPC_Future:
     """
     This class is a placeholder of future value
     """
-    def __init__(self, result: ft.Future, scheduler: "Runner"):
+    def __init__(self, result, scheduler: "Runner"):
         self.result = result
         self.scheduler = scheduler
 
@@ -303,10 +305,10 @@ class RPC_Future:
         return self.scheduler.status()
 
     def get(self):
-        return self.result.result()
+        return self.result.get()
 
     def status(self):
-        return self.result.done()
+        return self.result.ready()
 
     @staticmethod
     def as_completed(cls_act: list["RPC_Future[T]"]) -> Generator[T, None, None]:
@@ -338,18 +340,19 @@ class Runner:
 class ProcessRunner(Runner):
     def __init__(self, num: int):
         self.process_num = num if num >= 0 else multiprocessing.cpu_count()
-        self.pool = ft.ProcessPoolExecutor(
-                max_workers=self.process_num
-            )
+        # self.pool = ft.ProcessPoolExecutor(
+        #         max_workers=self.process_num
+        #     )
+        self.pool = Pool(self.process_num)
         self.process_handle: list[RPC_Future] = []
 
     def run(self, func, /, *args, **kwargs) -> RPC_Future:
-        result = self.pool.submit(func, *args, **kwargs)
+        result = self.pool.apply_async(func, args, kwargs)
         self.process_handle.append(RPC_Future(result, self))
         return self.process_handle[-1]
 
     def close(self):
-        self.pool.shutdown()
+        self.pool.close()
         self.pool = None
 
     def status(self) -> tuple[bool, int, int, int]:
@@ -371,15 +374,15 @@ import inspect
 def stage_worker(func_str, *args, **kwargs):
     print(func_str)
     exec(func_str, globals())
-    return worker(*args, **kwargs)
+    return worker_func(*args, **kwargs)
 
 class NetworkRunner(Runner):
     def __init__(self, host: int, port: int, num: int):
         # start server
         self.host = host
         self.port = port
-        # self.process_num = num if num >= 0 else multiprocessing.cpu_count()
-        self.process_num = 1
+        self.process_num = num if num >= 0 else multiprocessing.cpu_count()
+        # self.process_num = 1
         self.conn = rpyc.classic.connect(host, port=port)
         self.conn.execute("import time")
         self.conn.execute("import inspect")
@@ -389,17 +392,12 @@ class NetworkRunner(Runner):
         #     concurrent.futures.ProcessPoolExecutor(
         #         max_workers=self.process_num
         #     )
-        self.conn.execute("import concurrent.futures as ft")
-        abc = []
-        for i in range(4):
-            temp = rpyc.classic.connect(host, port=port)
-            temp.execute("import os")
-            print(temp.eval("os.getpid()"))
-            abc.append(temp)
-        
-        for i in range(4):
-            abc[i].close()
-        
+        # self.conn.execute("import concurrent.futures as ft")
+        self.conn.execute("import dill")
+        self.conn.execute("from multiprocess import Pool as Pl")
+        # self.conn.execute("import os")
+        # self.conn.execute("import gc")
+        # self.conn.execute("import multiprocess as multiprocessing")
             
         # self.conn.execute("def stage_worker(func_str, *args, **kwargs):\n    exec(func_str, globals())\n    return worker(*args, **kwargs)\n")
         # self.conn.execute("function_def = \"def stage_worker(func_str, *args, **kwargs):\\n    exec(func_str, globals())\\n    return worker(*args, **kwargs)\\n\"")
@@ -407,24 +405,26 @@ class NetworkRunner(Runner):
         # print(self.conn.eval("dir()"))
         # print(self.conn.eval("globals()"))
         # self.conn.execute("exec(function_def, globals())")
-        self.conn.teleport(stage_worker)
+        # self.conn.teleport(stage_worker)
         # print(self.conn.eval("dir()"))
         # print(self.conn.eval("globals()"))
         # print(self.conn.eval("dir(stage_worker)"))
-        print(self.conn.eval("inspect.getsource(stage_worker)"))
+        # print(self.conn.eval("inspect.getsource(stage_worker)"))
         
-        self.conn.execute(f"pool = ft.ThreadPoolExecutor(max_workers={self.process_num})")
+        # self.conn.execute(f"pool = ft.ThreadPoolExecutor(max_workers={self.process_num})")
         # self.conn.execute(f"pool = ft.ProcessPoolExecutor(max_workers={self.process_num})")
+        
+        self.conn.execute(f"async_pool = Pl({self.process_num})")
+        # self.conn.execute(f"async_pool = Pool({self.process_num})")
 
         self.process_handle: list[RPC_Future] = []
 
     def run(self, func, /, *args, **kwargs) -> RPC_Future:
         # teleport function
-        # self.conn.teleport(func)
-        self.conn.namespace["func_str"] = inspect.getsource(func)
+        self.conn.teleport(func)
+        # self.conn.namespace["func_str"] = inspect.getsource(func)
         self.conn.namespace["args"] = args
         self.conn.namespace["kwargs"] = kwargs
-        
         
         # source = inspect.getsource(func)
         # source = source.split("\n")[1:]
@@ -448,17 +448,67 @@ class NetworkRunner(Runner):
             #     for result in func([item]):
             #         output_queue.put(result)
 
-        # print(self.conn.eval("inspect.getsource(worker)"))
+        # print(self.conn.eval("inspect.getsource(worker_func)"))
+        # self.conn.execute("exec(inspect.getsource(worker_func), {})")
         # self.conn.execute("func_str = inspect.getsource(worker)")
         # self.conn.execute("arg_func = func_str + \"\\n\"")
         # self.conn.execute("arg_func += \"worker(*args, **kwargs)\"")
         # print(self.conn.eval("arg_func"))
+        # print(self.conn.eval("arg_func"))
         # print(self.conn.execute("result = pool.submit(exec, arg_func, globals())"))
         # print(self.conn.eval("pool.submit(eval, \"56\").result()"))
-        self.conn.execute(f"result = pool.submit(stage_worker, func_str, *args, **kwargs)")
+        # def definefunc():
+        #     exec(func_str, globals())
+        # fn = self.conn.teleport(definefunc)
+        # fn()
+        # self.conn.execute("exec(func_str, globals())")
+        # print(self.conn.eval("args"))
+        # print(self.conn.eval("type(args)"))
+        # print(kwargs)
+        # print(self.conn.eval("kwargs"))
+        # self.conn.execute(f"result = pool.apply_async(worker, args, kwargs)")
+        # self.conn.execute(f"result = async_pool.apply_async(int,\"2\")")
+        # print(self.conn.eval("type(result.get())"))
+        # print(self.conn.eval("result.get()"))
+        # print("=================")
+        # self.conn.execute("worker_referents = gc.get_referents(worker_func)")
+        # print(self.conn.eval("any(ref is async_pool for ref in worker_referents)"))
+        # print(self.conn.eval("dill.detect.nestedcode(worker_func)"))
+        # print(self.conn.eval("dill.detect.globalvars(worker_func)"))
+        # print(self.conn.eval("dill.detect.errors(worker_func)"))
+        # print(self.conn.eval("dill.detect.trace(True)"))
+        # print(self.conn.eval("worker_func"))
+        # print(self.conn.eval("worker_func(4)"))
+        # print(self.conn.eval("worker.__globals__"))
+        # self.conn.execute("worker2 = worker")
+        self.conn.execute("dill.settings['recurse'] = True")
+        # self.conn.eval(f"dill.dumps(lambda x: worker2(x))")
+        
+        # self.conn.execute("old = async_pool")
+        # self.conn.execute("async_pool = None")
+        # print(self.conn.eval(f"dill.dumps(worker_func)"))
+        # print(self.conn.eval("worker_func(5)"))
+        
+        self.conn.execute("result = async_pool.apply_async(worker_func, args, kwargs)")
+        # self.conn.execute(f"result = async_pool.apply_async(worker_func, (3,))")
+        # print(self.conn.eval("result._pool"))
+        # self.conn.execute(f"result = pool.apply_async(stage_worker, (func_str, *args), kwargs)")
+        # print(self.conn.eval("type(result)"))
+        # print(self.conn.eval("dir(result)"))
+        # time.sleep(5)
+        # print(self.conn.eval("result.successful()"))
+        # print(self.conn.eval("type(result.ready())"))
+        # print("=================")
+        # print(self.conn.eval("result.ready()"))
+        # print(self.conn.eval("result.successful()"))
+        # print(self.conn.eval("result._pool"))
+        # print(self.conn.eval("result.get()"))
+        
         result = self.conn.namespace["result"]
+        # print(self.conn.eval("args"))
         self.process_handle.append(RPC_Future(result, self))
         # print("**********", result)
+        # print(self.conn.eval("args"))
         return self.process_handle[-1]
 
     def close(self):
@@ -494,11 +544,12 @@ class FPGARunner(Runner):
 
 #################################################################
 
-def worker(number):
+def worker_func(number):
     # time.sleep(random.random() * 2)  # Simulate a time-consuming task
-    sum = 0
+    sum_num = 0
     for i in range(30000000):
-        sum += i
+        sum_num += i
+    # print(number, sum)
     return number * number
 
 def main():
@@ -517,14 +568,14 @@ def main():
         
         start_time = time.time()
         for number in numbers:
-            print("Results 1:", pool.apply(worker, number))
+            print("Results 1:", pool.apply(worker_func, number))
         print(f"execution time: {time.time() - start_time:.2f} seconds")
 
         # Apply the worker function to each number asynchronously
         start_time = time.time()
         print()
         for number in numbers:
-            async_result = pool.apply_async(worker, number)
+            async_result = pool.apply_async(worker_func, number)
             async_results.append(async_result)
 
         # Retrieve the results
@@ -534,25 +585,25 @@ def main():
         
         start_time = time.time()
         print()
-        for i in pool.map_ordered(numbers, worker):
+        for i in pool.map_ordered(numbers, worker_func):
             print("Results 3:", i)
         print(f"execution time: {time.time() - start_time:.2f} seconds")
 
         start_time = time.time()
         print()
-        for i in pool.map_ordered_async(numbers, worker):
+        for i in pool.map_ordered_async(numbers, worker_func):
             print("Results 4:", i.get())
         print(f"execution time: {time.time() - start_time:.2f} seconds")
 
         start_time = time.time()
         print()
-        for i in pool.map(numbers, worker):
+        for i in pool.map(numbers, worker_func):
             print("Results 5:", i)
         print(f"execution time: {time.time() - start_time:.2f} seconds")
 
         start_time = time.time()
         print()
-        async_results = pool.map_async(numbers, worker)
+        async_results = pool.map_async(numbers, worker_func)
         for i in RPC_Future.as_completed(async_results):
             print("Results 6:", i)
         print(f"execution time: {time.time() - start_time:.2f} seconds")
