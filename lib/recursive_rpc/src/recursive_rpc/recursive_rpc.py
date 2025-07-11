@@ -30,17 +30,17 @@ class localprocess(tupleprocess):
 @dataclass
 class networkprocess(tupleprocess):
     number: int
-    host: int | str
+    host: str
     port: int
-    ssh_port: int | None = None
+    ssh_port: Callable
 
 @dataclass
 class proxyprocess(tupleprocess):
     number: int
-    host: int | str
-    port: int
+    host: str | None
+    port: int | None
     client: list["localprocess | networkprocess | proxyprocess"]
-    ssh_port: int | None = None
+    ssh_login: Tuple
 
 class CustomList:
     def __init__(self, items):
@@ -176,10 +176,10 @@ class Recursive_RPC:
             match val:
                 case localprocess(i):
                     runner = ProcessRunner(i)
-                case networkprocess(i, j, k):
-                    runner = NetworkRunner(i, j, k)
-                case proxyprocess(i, j, k, l):
-                    runner = ProxyRunner(i, j, k, l)
+                case networkprocess(i, j, k, l):
+                    runner = NetworkRunner(i, j, k, l)
+                case proxyprocess(i, j, k, l, m):
+                    runner = ProxyRunner(i, j, k, l, m)
                 case _:
                     raise TypeError
             self.weight[index] = runner.process_num
@@ -195,12 +195,8 @@ class Recursive_RPC:
         for i, c in enumerate(self.connection):
             if c:
                 c.close()
-                self.connection[i] = None
-        if any(self.connection):
-            print(self.connection)
-            print(self.connection[0])
-            raise RuntimeError("Not all clients are closed")
-
+        self.connection.clear()
+        
     def schedule(self) -> "Runner":
         # start_time = time.time()
         # memo = {}
@@ -310,11 +306,6 @@ class RPC_Future:
 
 ################################################################
 
-# TODO: test proxy runner
-# TODO: make ssh runner
-# TODO: make setup project checklist
-# TODO: make setup project script
-
 class Runner:
     """
     This class is concrete runner
@@ -359,16 +350,19 @@ class ProcessRunner(Runner):
         return (is_pool_active, process_num, not_done_count, 0)
 
 class NetworkRunner(Runner):
-    def __init__(self, num: int, host: int | str, port: int, ssh_port: int | None = None):
+    def __init__(self, num: int, host: int | str, port: int, ssh_con: Callable | None = None):
         # start server
         self.host = host
         self.port = port
         self.process_num = num if num >= 0 else multiprocessing.cpu_count()
+        self.ssh_con = ssh_con
         # self.process_num = 1
         try:
+            if ssh_con is not None:
+                raise ValueError
             self.conn = rpyc.classic.connect(host, port=port)
         except:
-            self.ssh_con = activate_ssh(host, ssh_port, port)
+            # self.ssh_con = activate_ssh(host, ssh_port, port)
             self.conn = rpyc.classic.connect(host, port=port)
         self.conn.execute("import time")
         self.conn.execute("import inspect")
@@ -396,17 +390,12 @@ class NetworkRunner(Runner):
 
     def close(self):
         self.conn.execute("async_pool.close()")
-        # try:
-        #     self.conn.modules.os._exit(0)
-        # except Exception as e:
-        #     print("exit", e)
         try:
             self.conn.close()
         except Exception as e:
             print("close", e)
         self.conn = None
-        if getattr(self, "ssh_con", None):
-            self.ssh_con.close()
+        self.ssh_con()
 
     def status(self) -> tuple[bool, int, int]:
         for i,v in enumerate(self.process_handle):
@@ -421,16 +410,23 @@ class NetworkRunner(Runner):
         return (is_pool_active, process_num, not_done_count, 0)
 
 class ProxyRunner(Runner):
-    def __init__(self, num: int, host: int | str, port: int, 
+    def __init__(self, num: int, host: str, port: int, 
                  clientlist: list[localprocess | networkprocess | proxyprocess], 
-                 ssh_port: int | None = None):
+                 ssh_login: Tuple | None = None):
         self.host = host
         self.port = port
         self.num = num
+        self.ssh_login = ssh_login
         
+        self.stop = None
         if host is not None:
-            # raise NotImplementedError
-            self.conn = rpyc.classic.connect(host, port=port)
+            user, password = self.ssh_login if self.ssh_login is not None else ("root", "")
+            self.stop = activate_ssh(self.host, 
+                                user,
+                                self.port, 
+                                password, 
+                                num)
+            self.conn = rpyc.classic.connect(host, port=num)
             self.conn.execute("import recursive_rpc as rp")
             self.conn.execute("runner_list = []")
         
@@ -443,27 +439,31 @@ class ProxyRunner(Runner):
             match val:
                 case localprocess(i):
                     if host is not None:
-                        # self.conn.execute("runner_list.append(rp.ProcessRunner(" + str(num) + "))")
+                        # TODO: fix function serialization
+                        # self.conn.execute("runner_list.append(rp.ProcessRunner(" + str(i) + "))")
                         # runner = self.conn.namespace["runner_list"][-1]
-                        runner = NetworkRunner(self.num, self.host, self.port)
+                        # TODO: create ssh
+                        runner = NetworkRunner(i, self.host, self.port, None)
                     else:
                         runner = ProcessRunner(i)
-                case networkprocess(i, j, k):
+                case networkprocess(i, j, k, l):
                     if host is not None:
+                        # TODO: create ssh
                         self.conn.execute("runner_list.append(rp.NetworkRunner("\
                             + str(i)+ ", " + "\"" + str(j) + "\""  \
-                            + ", " + str(k) + "))")
+                            + ", " + str(k) + "," + str(l) + "))")
                         runner = self.conn.namespace["runner_list"][-1]
                     else:
-                        runner = NetworkRunner(i, j, k)
-                    runner = NetworkRunner(i, j, k)
-                case proxyprocess(i, j, k, l):
+                        runner = NetworkRunner(i, j, k, l)
+                case proxyprocess(i, j, k, l, m):
                     if host is not None:
+                        # TODO: fix this behaviour
                         self.conn.execute("runner_list.append(rp.ProxyRunner(" + str(i) + ", " + str(j) \
                             + ", " + str(k) + ", " + str(l) + "))")
                         runner = self.conn.namespace["runner_list"][-1]
                     else:
-                        runner = ProxyRunner(i, j, k, l)
+                        # TODO: pass correct parameter
+                        runner = ProxyRunner(i, j, k, l, m)
                 case _:
                     raise TypeError
             self.process_num += runner.process_num
@@ -476,15 +476,29 @@ class ProxyRunner(Runner):
         return rand
 
     def run(self, func, /, *args, **kwargs):
+        # teleport function
+        if self.host is not None:
+            self.conn.teleport(func)
+            self.conn.namespace["args"] = args
+            self.conn.namespace["kwargs"] = kwargs
+        # 
+        # self.conn.execute("result = async_pool.apply_async(worker_func, args, kwargs)")
+        # 
+        # result = self.conn.namespace["result"]
+        # self.process_handle.append(RPC_Future(result, self))
+        # return self.process_handle[-1]
         runner: Runner = self.schedule()
         if not runner:
             raise RuntimeError("No runner")
+        
         return runner.run(func, *args, **kwargs)
 
     def close(self):
         for i in self.connection:
             i.close()
         self.connection.clear()
+        if self.stop:
+            self.stop()
         self.connection = None
 
     def status(self) -> tuple[bool, int, int]:
@@ -620,67 +634,14 @@ class RemoteUVRunner:
         """Context manager exit point: disconnects from the host."""
         self.disconnect()
 
-def activate_ssh_none(host: int | str, user: str, port: int, password: Optional[str] = None):
-    # === CONFIGURATION ===
-    REMOTE_HOST = host
-    REMOTE_USER = user
-    REMOTE_PORT = port
-    REMOTE_PASSWORD = password
-    # Optional: if your key is not in the default location (~/.ssh/id_rsa)
-    # SSH_KEY_PATH = "/path/to/your/private/key"
-
-    # The local Python script to execute remotely
-    SCRIPT_TO_RUN = "rpyc_classic.py"
-
-    # Arguments to pass to the remote script
-    SCRIPT_ARGS = ["-m", "oneshot"]
-    # === END CONFIGURATION ===
-    
-    try:
-        # Use the class as a context manager for automatic connection handling
-        with RemoteUVRunner(host=REMOTE_HOST, 
-                            user=REMOTE_USER, 
-                            port=REMOTE_PORT, 
-                            password=REMOTE_PASSWORD, 
-                            remote_temp_dir="./tmp") as runner:
-            runner.connect()
-            # Call the run_script method
-            stdin, stdout, stderr = runner.run_script(
-                local_script_path=SCRIPT_TO_RUN,
-                script_args=SCRIPT_ARGS
-            )
-            stdin.channel.setblocking(False)
-            
-            # Process the results
-            print("\n--- Remote Execution Complete ---")
-            stdout_str = stdout.read().decode("utf-8").strip()
-            stderr_str = stderr.read().decode("utf-8").strip()
-            if stdout:
-                print("\n[STDOUT]:")
-                print(stdout_str)
-            if stderr:
-                print("\n[STDERR]:")
-                print(stderr_str)
-    except FileNotFoundError as e:
-        print(f"Error: {e}")
-    except Exception as e:
-        print(f"An unexpected error occurred: {e}")
-    finally:
-        runner.disconnect()
-    
-    def stop():
-        runner.disconnect()
-    
-    return stop
-
-
 #################################################################
 
 def activate_ssh(
             host: str, 
             user: str, 
             port: int, 
-            password: Optional[str] = None
+            password: Optional[str] = None,
+            remote_port: int = 18812
         ) -> Callable[[], None]:
     """
     Start a remote SSH process and return a stop function.
@@ -691,7 +652,7 @@ def activate_ssh(
     
     # Configuration
     SCRIPT_TO_RUN = "rpyc_classic.py"
-    SCRIPT_ARGS = ["-m", "oneshot"]
+    SCRIPT_ARGS = ["-m", "oneshot", "-p", str(remote_port)]
     
     # Shared state
     runner = None
