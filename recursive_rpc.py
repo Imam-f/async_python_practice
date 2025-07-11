@@ -302,9 +302,7 @@ class RPC_Future:
 
 ################################################################
 
-# TODO: test proxy runner
 # TODO: make ssh runner
-# TODO: make setup project checklist
 # TODO: make setup project script
 
 class Runner:
