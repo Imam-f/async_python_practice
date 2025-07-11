@@ -1,9 +1,14 @@
+from typing import Optional, List, Tuple
 from typing import Generator, TypeVar, Callable, Any
 import time
 import random
+import os
 import concurrent.futures as ft
 # import multiprocessing
 from dataclasses import dataclass
+
+import paramiko
+from scp import SCPClient
 
 import multiprocess as multiprocessing
 from multiprocess import Pool
@@ -474,11 +479,173 @@ class ProxyRunner(Runner):
         # Connnection, max capacity, used capacity, latency
         return (is_pool_active, process_num, not_done_count, 0)
 
-class SSHAdaptor:
-    def __init__(self):
-        pass
+class RemoteUVRunner:
+    """
+    A class to manage SSH connections for running Python scripts with 'uv'.
+
+    This class handles connecting to a remote host, copying a script,
+    and executing it using 'uv run', which manages dependencies defined
+    within the script's '/// script' block.
+
+    It can be used as a context manager to ensure the SSH connection
+    is properly closed.
+    """
+
+    def __init__(
+        self,
+        host: int | str,
+        user: str,
+        port: int = 22,
+        password: Optional[str] = None,
+        remote_temp_dir: str = "/tmp",
+        ssh_key_path: Optional[str] = None,
+    ):
+        """
+        Initializes the RemoteUVRunner.
+
+        Args:
+            host (str): The remote server hostname or IP address.
+            user (str): The username for the SSH connection.
+            remote_temp_dir (str): The temporary directory on the remote host.
+            ssh_key_path (Optional[str]): Path to the private SSH key.
+        """
+        self.host = host
+        self.user = user
+        self.port = port
+        self.password = password
+        self.remote_temp_dir = remote_temp_dir
+        self.ssh_key_path = ssh_key_path
+        self.ssh_client: Optional[paramiko.SSHClient] = None
+
+    def connect(self):
+        """Establishes the SSH connection."""
+        if self.ssh_client and self.ssh_client.get_transport().is_active():
+            print("Already connected.")
+            return
+
+        try:
+            print(f"Connecting to {self.user}@{self.host}...")
+            self.ssh_client = paramiko.SSHClient()
+            self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            self.ssh_client.connect(
+                hostname=self.host,
+                username=self.user,
+                port=self.port,
+                password=self.password,
+                key_filename=self.ssh_key_path,
+            )
+        except Exception as e:
+            print(f"Failed to connect: {e}")
+            self.ssh_client = None
+            raise
+
+    def disconnect(self):
+        """Closes the SSH connection."""
+        if self.ssh_client:
+            print("Closing SSH connection.")
+            self.ssh_client.close()
+            self.ssh_client = None
+
+    def run_script(
+        self, local_script_path: str, script_args: Optional[List[str]] = None
+    ) -> Tuple[str, str]:
+        """
+        Copies a script to the remote host and executes it with 'uv run'.
+
+        Args:
+            local_script_path (str): The local path to the Python script.
+            script_args (Optional[List[str]]): A list of command-line
+                                               arguments for the script.
+
+        Returns:
+            Tuple[str, str]: A tuple containing the stdout and stderr from the
+                             remote command execution.
+        """
+        if not self.ssh_client:
+            raise ConnectionError("Not connected. Call connect() first or use as a context manager.")
+
+        if not os.path.exists(local_script_path):
+            raise FileNotFoundError(f"Local script not found at: {local_script_path}")
+
+        script_filename = os.path.basename(local_script_path)
+        remote_script_path = f"{self.remote_temp_dir}/{script_filename}"
+
+        # 1. Copy the file using SCP
+        with SCPClient(self.ssh_client.get_transport()) as scp:
+            print(f"Copying {local_script_path} to {self.host}:{remote_script_path}...")
+            scp.put(local_script_path, remote_script_path)
+
+        # 2. Construct and execute the command
+        args_str = " ".join(script_args) if script_args else ""
+        command = f"cd {self.remote_temp_dir} && uv run {script_filename} {args_str}"
+
+        print(f"Executing remote command: {command}")
+        _, stdout, stderr = self.ssh_client.exec_command(command)
+
+        # It's important to read the streams before the connection closes
+        stdout_str = stdout.read().decode("utf-8").strip()
+        stderr_str = stderr.read().decode("utf-8").strip()
+
+        return stdout_str, stderr_str
+
+    def __enter__(self):
+        """Context manager entry point: connects to the host."""
+        self.connect()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager exit point: disconnects from the host."""
+        self.disconnect()
+
+def activate_ssh(host: int | str, user: str, port: int, password: Optional[str] = None):
+    # === CONFIGURATION ===
+    REMOTE_HOST = "localhost" if host is None else host
+    REMOTE_USER = "IMF-PC\\User" if user is None else user
+    REMOTE_PORT = 2222 if port is None else port
+    REMOTE_PASSWORD = "***REMOVED***" if password is None else password
+    # Optional: if your key is not in the default location (~/.ssh/id_rsa)
+    # SSH_KEY_PATH = "/path/to/your/private/key"
+
+    # The local Python script to execute remotely
+    SCRIPT_TO_RUN = "rpyc_classic.py"
+
+    # Arguments to pass to the remote script
+    SCRIPT_ARGS = [""]
+    # === END CONFIGURATION ===
+
+    """
+    Demonstrates using the RemoteUVRunner class to execute a script remotely.
+    """
+    try:
+        # Use the class as a context manager for automatic connection handling
+        with RemoteUVRunner(host=REMOTE_HOST, 
+                            user=REMOTE_USER, 
+                            port=REMOTE_PORT, 
+                            password=REMOTE_PASSWORD) as runner:
+            # Call the run_script method
+            stdout, stderr = runner.run_script(
+                local_script_path=SCRIPT_TO_RUN,
+                script_args=SCRIPT_ARGS
+            )
+
+            # Process the results
+            print("\n--- Remote Execution Complete ---")
+            if stdout:
+                print("\n[STDOUT]:")
+                print(stdout)
+            if stderr:
+                print("\n[STDERR]:")
+                print(stderr)
+
+    except FileNotFoundError as e:
+        print(f"Error: {e}")
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+
 
 #################################################################
+
+activate_ssh("localhost", "IMF-PC\\User", 2222, "***REMOVED***")
 
 def worker_func(number):
     # time.sleep(random.random() * 2)  # Simulate a time-consuming task
