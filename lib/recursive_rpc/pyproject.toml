@@ -1,0 +1,18 @@
+[project]
+name = "recursive_rpc"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Imam-f", email = "mohamadimamfirdaus17@gmail.com" }
+]
+requires-python = ">=3.10"
+dependencies = [
+    "dill>=0.4.0",
+    "multiprocess>=0.70.18",
+    "rpyc>=6.0.2",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

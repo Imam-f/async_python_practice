@@ -1,7 +1,9 @@
 from multiprocess import Pool
 from textwrap import dedent
+from typing import Callable
 
 if __name__ == "__main__":
+    double: Callable = lambda: None
     func = dedent(
         """
         def double(num):
