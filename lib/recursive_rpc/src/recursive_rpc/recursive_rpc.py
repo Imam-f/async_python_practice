@@ -23,9 +23,10 @@ class localprocess(tupleprocess):
 
 @dataclass
 class networkprocess(tupleprocess):
+    number: int
     host: int | str
     port: int
-    number: int
+    ssh_port: int | None = None
 
 @dataclass
 class proxyprocess(tupleprocess):
@@ -33,6 +34,7 @@ class proxyprocess(tupleprocess):
     host: int | str
     port: int
     client: list["localprocess | networkprocess | proxyprocess"]
+    ssh_port: int | None = None
 
 class CustomList:
     def __init__(self, items):
@@ -351,7 +353,7 @@ class ProcessRunner(Runner):
         return (is_pool_active, process_num, not_done_count, 0)
 
 class NetworkRunner(Runner):
-    def __init__(self, host: int | str, port: int, num: int, ssh_port: int = 22):
+    def __init__(self, num: int, host: int | str, port: int, ssh_port: int | None = None):
         # start server
         self.host = host
         self.port = port
@@ -403,7 +405,9 @@ class NetworkRunner(Runner):
         return (is_pool_active, process_num, not_done_count, 0)
 
 class ProxyRunner(Runner):
-    def __init__(self, num: int, host: int | str, port: int, clientlist: list[localprocess | networkprocess | proxyprocess]):
+    def __init__(self, num: int, host: int | str, port: int, 
+                 clientlist: list[localprocess | networkprocess | proxyprocess], 
+                 ssh_port: int | None = None):
         self.host = host
         self.port = port
         self.num = num
@@ -423,13 +427,15 @@ class ProxyRunner(Runner):
             match val:
                 case localprocess(i):
                     if host is not None:
-                        self.conn.execute("runner_list.append(rp.ProcessRunner(" + str(num) + "))")
-                        runner = self.conn.namespace["runner_list"][-1]
+                        # self.conn.execute("runner_list.append(rp.ProcessRunner(" + str(num) + "))")
+                        # runner = self.conn.namespace["runner_list"][-1]
+                        runner = NetworkRunner(self.num, self.host, self.port)
                     else:
                         runner = ProcessRunner(i)
                 case networkprocess(i, j, k):
                     if host is not None:
-                        self.conn.execute("runner_list.append(rp.NetworkRunner(" + str(i) + ", " + str(j) \
+                        self.conn.execute("runner_list.append(rp.NetworkRunner("\
+                            + str(i)+ ", " + "\"" + str(j) + "\""  \
                             + ", " + str(k) + "))")
                         runner = self.conn.namespace["runner_list"][-1]
                     else:
@@ -447,7 +453,8 @@ class ProxyRunner(Runner):
             self.process_num += runner.process_num
             self.weight.append(runner.process_num)
             self.connection.append(runner)
-            
+        print("done init")
+        
     def schedule(self):
         rand = random.choices(self.connection, weights=self.weight, k=1)[0]
         return rand
@@ -479,82 +486,3 @@ class ProxyRunner(Runner):
 class SSHAdaptor:
     def __init__(self):
         pass
-
-#################################################################
-
-def worker_func(number):
-    # time.sleep(random.random() * 2)  # Simulate a time-consuming task
-    sum_num = 0
-    for i in range(30000000):
-        sum_num += i
-    # print(number, sum)
-    return number * number
-
-def main():
-    # Create a pool of worker processes
-    # The number of processes is set to the number of CPU cores
-    with Recursive_RPC(client=[
-                proxyprocess(-1, "localhost", 18812, [
-                    localprocess(-1),
-                    networkprocess("localhost", 18812, -1)
-                ]),
-                # localprocess(-1),
-                # networkprocess("localhost", 18812, -1)
-            ]) as pool:
-        
-        # Create a list of numbers to process
-        numbers = list(range(10))
-        
-        # List to store the AsyncResult objects
-        async_results = []
-        
-        start_time = time.time()
-        for number in numbers:
-            print("Results 1:", pool.apply(worker_func, number))
-        print(f"execution time: {time.time() - start_time:.2f} seconds")
-
-        # Apply the worker function to each number asynchronously
-        start_time = time.time()
-        print()
-        for number in numbers:
-            async_result = pool.apply_async(worker_func, number)
-            async_results.append(async_result)
-
-        # Retrieve the results
-        for async_result in RPC_Future.as_completed(async_results):
-            print("Results 2:", async_result)
-        print(f"execution time: {time.time() - start_time:.2f} seconds")
-        
-        start_time = time.time()
-        print()
-        for i in pool.map_ordered(numbers, worker_func):
-            print("Results 3:", i)
-        print(f"execution time: {time.time() - start_time:.2f} seconds")
-
-        start_time = time.time()
-        print()
-        for i in pool.map_ordered_async(numbers, worker_func):
-            print("Results 4:", i.get())
-        print(f"execution time: {time.time() - start_time:.2f} seconds")
-
-        start_time = time.time()
-        print()
-        for i in pool.map(numbers, worker_func):
-            print("Results 5:", i)
-        print(f"execution time: {time.time() - start_time:.2f} seconds")
-
-        start_time = time.time()
-        print()
-        async_results = pool.map_async(numbers, worker_func)
-        for i in RPC_Future.as_completed(async_results):
-            print("Results 6:", i)
-        print(f"execution time: {time.time() - start_time:.2f} seconds")
-
-################################################################
-
-if __name__ == "__main__":
-    start_time = time.time()
-    main()
-    end_time = time.time()
-    print(f"Total execution time: {end_time - start_time:.2f} seconds")
-
