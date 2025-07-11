@@ -145,34 +145,6 @@ def pipe(x, *fns):
 
 ################################################################
 
-"""
-TODO:
-    # [done] intilaize each client
-    # [done] make process runner
-    # [done] make future
-    # [done] make apply
-    # [done] make map function
-    # [done] make proper scheduler
-        # use status as condition
-        # sort by empty runner
-        # sort by latency
-    # make network runner
-        # network runner only an instance process 
-        # actually calculate resource like latency
-        # with ping i guess? or run unix time
-    # use ssh tunelling for security
-        # make network port breaching for local port?
-        # make parallel pipe + parllel custom list
-    # make proxy scheduler + runner
-        # only if necessary:
-            # check if the folder exists
-            # if version mismatch delete folder
-            # zip the folder according to git files
-            # send the zip
-            # unzip
-        # run on remote
-"""
-
 T = TypeVar("T")
 U = TypeVar("U")
 
@@ -231,10 +203,10 @@ class Recursive_RPC:
         #         ).take(1)[0]
         # rand = random.randint(0, len(self.connection) - 1)
         # return self.connection[rand]
-        # rand = random.choices(self.connection, weights=self.weight, k=1)[0]
-        # return rand
+        rand = random.choices(self.connection, weights=self.weight, k=1)[0]
+        return rand
         # return self.connection[0]
-        return self.connection[1]
+        # return self.connection[1]
 
     def apply(self, func: Callable[[any], T], /, *args, **kwargs) -> T:
         # Apply then wait
@@ -367,15 +339,6 @@ class ProcessRunner(Runner):
         # Connnection, max capacity, used capacity, latency
         return (is_pool_active, process_num, not_done_count, 0)
 
-# import sys
-# print(sys.getswitchinterval())
-
-import inspect
-def stage_worker(func_str, *args, **kwargs):
-    print(func_str)
-    exec(func_str, globals())
-    return worker_func(*args, **kwargs)
-
 class NetworkRunner(Runner):
     def __init__(self, host: int, port: int, num: int):
         # start server
@@ -387,128 +350,23 @@ class NetworkRunner(Runner):
         self.conn.execute("import time")
         self.conn.execute("import inspect")
         self.conn.execute("import random")
-        # setup environment
-        # self.pool: ft.ProcessPoolExecutor = self.conn.modules.\
-        #     concurrent.futures.ProcessPoolExecutor(
-        #         max_workers=self.process_num
-        #     )
-        # self.conn.execute("import concurrent.futures as ft")
         self.conn.execute("import dill")
         self.conn.execute("from multiprocess import Pool as Pl")
-        # self.conn.execute("import os")
-        # self.conn.execute("import gc")
-        # self.conn.execute("import multiprocess as multiprocessing")
-            
-        # self.conn.execute("def stage_worker(func_str, *args, **kwargs):\n    exec(func_str, globals())\n    return worker(*args, **kwargs)\n")
-        # self.conn.execute("function_def = \"def stage_worker(func_str, *args, **kwargs):\\n    exec(func_str, globals())\\n    return worker(*args, **kwargs)\\n\"")
-        # print(self.conn.eval("function_def"))
-        # print(self.conn.eval("dir()"))
-        # print(self.conn.eval("globals()"))
-        # self.conn.execute("exec(function_def, globals())")
-        # self.conn.teleport(stage_worker)
-        # print(self.conn.eval("dir()"))
-        # print(self.conn.eval("globals()"))
-        # print(self.conn.eval("dir(stage_worker)"))
-        # print(self.conn.eval("inspect.getsource(stage_worker)"))
-        
-        # self.conn.execute(f"pool = ft.ThreadPoolExecutor(max_workers={self.process_num})")
-        # self.conn.execute(f"pool = ft.ProcessPoolExecutor(max_workers={self.process_num})")
-        
+        self.conn.execute("dill.settings['recurse'] = True")
         self.conn.execute(f"async_pool = Pl({self.process_num})")
-        # self.conn.execute(f"async_pool = Pool({self.process_num})")
 
         self.process_handle: list[RPC_Future] = []
 
     def run(self, func, /, *args, **kwargs) -> RPC_Future:
         # teleport function
         self.conn.teleport(func)
-        # self.conn.namespace["func_str"] = inspect.getsource(func)
         self.conn.namespace["args"] = args
         self.conn.namespace["kwargs"] = kwargs
         
-        # source = inspect.getsource(func)
-        # source = source.split("\n")[1:]
-        # source[0] = source[0].replace(source[0].split(" ")[1].split("(")[0], "func")
-        # source = "\n".join(source)
-        
-        # def stage_worker(input_queue, output_queue, func_str):
-            # global func
-            # exec(func_str, globals())
-            
-            # if os.name == "nt":
-            #     global func
-            #     exec(func_str, globals())
-            # else:
-            #     func = func_str
-            # while True:
-            #     item = input_queue.get()
-            #     if item is None:
-            #         output_queue.put(None)  # Pass the sentinel to the next stage
-            #         break
-            #     for result in func([item]):
-            #         output_queue.put(result)
-
-        # print(self.conn.eval("inspect.getsource(worker_func)"))
-        # self.conn.execute("exec(inspect.getsource(worker_func), {})")
-        # self.conn.execute("func_str = inspect.getsource(worker)")
-        # self.conn.execute("arg_func = func_str + \"\\n\"")
-        # self.conn.execute("arg_func += \"worker(*args, **kwargs)\"")
-        # print(self.conn.eval("arg_func"))
-        # print(self.conn.eval("arg_func"))
-        # print(self.conn.execute("result = pool.submit(exec, arg_func, globals())"))
-        # print(self.conn.eval("pool.submit(eval, \"56\").result()"))
-        # def definefunc():
-        #     exec(func_str, globals())
-        # fn = self.conn.teleport(definefunc)
-        # fn()
-        # self.conn.execute("exec(func_str, globals())")
-        # print(self.conn.eval("args"))
-        # print(self.conn.eval("type(args)"))
-        # print(kwargs)
-        # print(self.conn.eval("kwargs"))
-        # self.conn.execute(f"result = pool.apply_async(worker, args, kwargs)")
-        # self.conn.execute(f"result = async_pool.apply_async(int,\"2\")")
-        # print(self.conn.eval("type(result.get())"))
-        # print(self.conn.eval("result.get()"))
-        # print("=================")
-        # self.conn.execute("worker_referents = gc.get_referents(worker_func)")
-        # print(self.conn.eval("any(ref is async_pool for ref in worker_referents)"))
-        # print(self.conn.eval("dill.detect.nestedcode(worker_func)"))
-        # print(self.conn.eval("dill.detect.globalvars(worker_func)"))
-        # print(self.conn.eval("dill.detect.errors(worker_func)"))
-        # print(self.conn.eval("dill.detect.trace(True)"))
-        # print(self.conn.eval("worker_func"))
-        # print(self.conn.eval("worker_func(4)"))
-        # print(self.conn.eval("worker.__globals__"))
-        # self.conn.execute("worker2 = worker")
-        self.conn.execute("dill.settings['recurse'] = True")
-        # self.conn.eval(f"dill.dumps(lambda x: worker2(x))")
-        
-        # self.conn.execute("old = async_pool")
-        # self.conn.execute("async_pool = None")
-        # print(self.conn.eval(f"dill.dumps(worker_func)"))
-        # print(self.conn.eval("worker_func(5)"))
-        
         self.conn.execute("result = async_pool.apply_async(worker_func, args, kwargs)")
-        # self.conn.execute(f"result = async_pool.apply_async(worker_func, (3,))")
-        # print(self.conn.eval("result._pool"))
-        # self.conn.execute(f"result = pool.apply_async(stage_worker, (func_str, *args), kwargs)")
-        # print(self.conn.eval("type(result)"))
-        # print(self.conn.eval("dir(result)"))
-        # time.sleep(5)
-        # print(self.conn.eval("result.successful()"))
-        # print(self.conn.eval("type(result.ready())"))
-        # print("=================")
-        # print(self.conn.eval("result.ready()"))
-        # print(self.conn.eval("result.successful()"))
-        # print(self.conn.eval("result._pool"))
-        # print(self.conn.eval("result.get()"))
         
         result = self.conn.namespace["result"]
-        # print(self.conn.eval("args"))
         self.process_handle.append(RPC_Future(result, self))
-        # print("**********", result)
-        # print(self.conn.eval("args"))
         return self.process_handle[-1]
 
     def close(self):
@@ -534,12 +392,6 @@ class NetworkService():
     pass
 
 class ProxyRunner(Runner):
-    pass
-
-class GPURunner(Runner):
-    pass
-
-class FPGARunner(Runner):
     pass
 
 #################################################################
