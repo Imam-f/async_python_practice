@@ -1,12 +1,16 @@
 from recursive_rpc import *
 import time
-
+import os
+from dotenv import load_dotenv
+load_dotenv()
+import traceback
 #################################################################
 
 def worker_func(number):
     # time.sleep(random.random() * 2)  # Simulate a time-consuming task
     sum_num = 0
     for i in range(30000000):
+    # for i in range(300000):
         sum_num += i
     # print(number, sum)
     return number * number
@@ -16,12 +20,12 @@ def main():
     # Create a pool of worker processes
     # The number of processes is set to the number of CPU cores
     with Recursive_RPC(client=[
-                proxyprocess(-1, "localhost", 18812, [
-                    localprocess(-1),
-                    networkprocess( -1, "localhost", 18813)
-                ]),
-                localprocess(-1),
-                networkprocess(-1, "localhost", 18812)
+                # proxyprocess(-1, "localhost", 18812, [
+                #     localprocess(-1),
+                #     networkprocess( -1, "localhost", 18813)
+                # ]),
+                # localprocess(-1),
+                networkprocess(4, "localhost", 18812)
             ]) as pool:
         
         # Create a list of numbers to process
@@ -75,8 +79,14 @@ def main():
 ################################################################
 
 if __name__ == "__main__":
+    stop = activate_ssh(os.getenv("HOSTNAME"), os.getenv("USER"), os.getenv("PORT"), os.getenv("PASSWORD"))
     start_time = time.time()
-    main()
+    try:
+        main()
+    except Exception as e:
+        print(f"Error: {e}")
+        print(traceback.format_exc())
+    finally:
+        stop()
     end_time = time.time()
     print(f"Total execution time: {end_time - start_time:.2f} seconds")
-
