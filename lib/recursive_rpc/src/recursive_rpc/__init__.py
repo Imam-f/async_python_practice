@@ -4,4 +4,4 @@ from .recursive_rpc import ProcessRunner, NetworkRunner, ProxyRunner
 from .recursive_rpc import RemoteUVRunner, activate_ssh
 
 def hello() -> str:
-    return "Hello from recursive-rpc!"
+    return "Hello from recursive_rpc!"
