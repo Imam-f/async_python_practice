@@ -26,79 +26,83 @@ def main():
     PASSWORD = os.getenv("PASSWORD") if os.getenv("PASSWORD") else None
     
     remote_port = [18812, 18813, 18814, 18815]
-    stop = activate_ssh(HOSTNAME, 
-                        USER, 
-                        PORT, 
-                        PASSWORD, 
+    stop = activate_ssh(HOSTNAME,
+                        USER,
+                        PORT,
+                        PASSWORD,
                         remote_port[0])
     # stop()
-    stop2 = activate_ssh(HOSTNAME, 
-                        USER, 
-                        PORT, 
-                        PASSWORD, 
+    stop2 = activate_ssh(HOSTNAME,
+                        USER,
+                        PORT,
+                        PASSWORD,
                         remote_port[3])
+    # stop2()
 
     HOSTNAME_FORWARD = HOSTNAME
     PORT_FORWARD = PORT
     ssh_login = (USER, PASSWORD)
     
-    with Recursive_RPC(client=[
-                # proxyprocess(remote_port[1], HOSTNAME_FORWARD, PORT_FORWARD, [
-                #     localprocess(4),
-                #     networkprocess(2, HOSTNAME, remote_port[2], "tag1")
-                # ], ssh_login, {"tag1": (HOSTNAME, USER, PORT, PASSWORD, remote_port[2])}),
-                # localprocess(2),
-                networkprocess(2, HOSTNAME, remote_port[0], stop),
-                networkprocess(2, HOSTNAME, remote_port[3], stop2)
-            ], conn={}) as pool:
-        
-        # Create a list of numbers to process
-        numbers = list(range(10))
-        
-        # List to store the AsyncResult objects
-        async_results = []
-        
-        start_time = time.time()
-        for number in numbers:
-            print("Results 1:", pool.apply(worker_func, number))
-        print(f"execution time: {time.time() - start_time:.2f} seconds")
+    if True:
+        with Recursive_RPC(client=[
+                    proxyprocess(remote_port[1], HOSTNAME_FORWARD, PORT_FORWARD, [
+                        localprocess(4),
+                        networkprocess(2, HOSTNAME, remote_port[2], "tag1")
+                    ], ssh_login, {"tag1": (HOSTNAME, USER, PORT, PASSWORD, remote_port[2])}),
+                    localprocess(2),
+                    networkprocess(2, HOSTNAME, remote_port[0], stop),
+                    networkprocess(2, HOSTNAME, remote_port[3], stop2)
+                ], conn={}) as pool:
+            
+            # Create a list of numbers to process
+            numbers = list(range(10))
+            
+            # List to store the AsyncResult objects
+            async_results = []
+            
+            start_time = time.time()
+            for number in numbers:
+                print("Results 1:", pool.apply(worker_func, number))
+            print(f"execution time: {time.time() - start_time:.2f} seconds")
 
-        # Apply the worker function to each number asynchronously
-        start_time = time.time()
-        print()
-        for number in numbers:
-            async_result = pool.apply_async(worker_func, number)
-            async_results.append(async_result)
+            # Apply the worker function to each number asynchronously
+            start_time = time.time()
+            print()
+            for number in numbers:
+                async_result = pool.apply_async(worker_func, number)
+                async_results.append(async_result)
 
-        # Retrieve the results
-        for async_result in RPC_Future.as_completed(async_results):
-            print("Results 2:", async_result)
-        print(f"execution time: {time.time() - start_time:.2f} seconds")
-        
-        start_time = time.time()
-        print()
-        for i in pool.map_ordered(numbers, worker_func):
-            print("Results 3:", i)
-        print(f"execution time: {time.time() - start_time:.2f} seconds")
+            # Retrieve the results
+            for async_result in RPC_Future.as_completed(async_results):
+                print("Results 2:", async_result)
+            print(f"execution time: {time.time() - start_time:.2f} seconds")
+            
+            start_time = time.time()
+            print()
+            for i in pool.map_ordered(numbers, worker_func):
+                print("Results 3:", i)
+            print(f"execution time: {time.time() - start_time:.2f} seconds")
 
-        start_time = time.time()
-        print()
-        for i in pool.map_ordered_async(numbers, worker_func):
-            print("Results 4:", i.get())
-        print(f"execution time: {time.time() - start_time:.2f} seconds")
+            start_time = time.time()
+            print()
+            for i in pool.map_ordered_async(numbers, worker_func):
+                print("Results 4:", i.get())
+            print(f"execution time: {time.time() - start_time:.2f} seconds")
 
-        start_time = time.time()
-        print()
-        for i in pool.map(numbers, worker_func):
-            print("Results 5:", i)
-        print(f"execution time: {time.time() - start_time:.2f} seconds")
+            start_time = time.time()
+            print()
+            for i in pool.map(numbers, worker_func):
+                print("Results 5:", i)
+            print(f"execution time: {time.time() - start_time:.2f} seconds")
 
-        start_time = time.time()
-        print()
-        async_results = pool.map_async(numbers, worker_func)
-        for i in RPC_Future.as_completed(async_results):
-            print("Results 6:", i)
-        print(f"execution time: {time.time() - start_time:.2f} seconds")
+            start_time = time.time()
+            print()
+            async_results = pool.map_async(numbers, worker_func)
+            for i in RPC_Future.as_completed(async_results):
+                print("Results 6:", i)
+            print(f"execution time: {time.time() - start_time:.2f} seconds")
+    if True:
+        pass
     
 ################################################################
 

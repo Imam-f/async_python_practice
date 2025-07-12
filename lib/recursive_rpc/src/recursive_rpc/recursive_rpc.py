@@ -394,8 +394,11 @@ class NetworkRunner(Runner):
         self.conn.teleport(func)
         self.conn.namespace["args"] = args
         self.conn.namespace["kwargs"] = kwargs
+        # print("=>>>> Not error here")
+        # print(self.conn.namespace["kwargs"])
         
         self.conn.execute("result = async_pool.apply_async(worker_func, args, kwargs)")
+        # print("=>>>> +++++ Not error here")
         
         result = self.conn.namespace["result"]
         self.process_handle.append(RPC_Future(result, self))
