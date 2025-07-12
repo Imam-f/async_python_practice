@@ -15,7 +15,7 @@ from multiprocess import Pool
 import rpyc
 
 old_print = print
-# print = lambda *args, **kwargs: None
+print = lambda *args, **kwargs: None
 
 ##################################################################
 
@@ -229,6 +229,8 @@ class Recursive_RPC:
         # rand = random.randint(0, len(self.connection) - 1)
         # return self.connection[rand]
         rand = random.choices(self.connection, weights=self.weight, k=1)[0]
+        if not rand:
+            raise RuntimeError("No runner")
         return rand
         # return self.connection[0]
         # return self.connection[1]
@@ -500,18 +502,18 @@ class ProxyRunner(Runner):
                             print(self.conn.namespace["remote_port"])
                             print("Here2")
                             # self.conn.execute("stop = rp.activate_ssh(HOSTNAME, USER, PORT, PASSWORD, remote_port)")
-                            with rpyc.classic.redirected_stdio(self.conn):
-                                from textwrap import dedent
-                                command = dedent("""
-                                                print("hello")
-                                                try:
-                                                    stop = rp.activate_ssh(HOSTNAME, USER, PORT, PASSWORD, remote_port)
-                                                    print(stop)
-                                                except Exception as e:
-                                                    print(e)
-                                                """)
-                                self.conn.execute(command)
-                            # self.conn.execute("rp.activate_ssh(HOSTNAME, USER, PORT, PASSWORD, remote_port)")
+                            # with rpyc.classic.redirected_stdio(self.conn):
+                            #     from textwrap import dedent
+                            #     command = dedent("""
+                            #                     print("hello")
+                            #                     try:
+                            #                         stop = rp.activate_ssh(HOSTNAME, USER, PORT, PASSWORD, remote_port)
+                            #                         print(stop)
+                            #                     except Exception as e:
+                            #                         print(e)
+                            #                     """)
+                            #     self.conn.execute(command)
+                            self.conn.execute("stop = rp.activate_ssh(HOSTNAME, USER, PORT, PASSWORD, remote_port)")
                             # self.conn.execute("stop = rp.activate_ssh(\"" + str(HOSTNAME) + \
                             #                   "\", \"" + str(USER) + \
                             #                   "\", " + str(PORT) + \
@@ -739,11 +741,12 @@ def activate_ssh(
         A callable that stops the remote process
     """
     
-    logfile = "activate_ssh.log"
-    logfile_handler = open(logfile, "w")
+    # logfile = "activate_ssh.log"
+    # logfile_handler = open(logfile, "w")
     
-    print(f"Activating SSH connection to {host}:{port}...", file=logfile_handler)
-    logfile_handler.flush()
+    print(f"Activating SSH connection to {host}:{port}...")
+    # print(f"Activating SSH connection to {host}:{port}...", file=logfile_handler)
+    # logfile_handler.flush()
     
     # Configuration
     SCRIPT_TO_RUN = "rpyc_classic.py"
@@ -765,8 +768,9 @@ def activate_ssh(
                 password=password, 
                 remote_temp_dir="."
             ) as runner:
-                print(f"Connected to {host}:{port}", file=logfile_handler)
-                logfile_handler.flush()
+                print(f"Connected to {host}:{port}")
+                # print(f"Connected to {host}:{port}", file=logfile_handler)
+                # logfile_handler.flush()
                 
                 # Start the remote script
                 stdin, stdout, stderr = runner.run_script(
@@ -777,14 +781,16 @@ def activate_ssh(
                 stdin.channel.setblocking(False)
                 thread_running.set()  # Signal that we're ready
                 
-                print("Remote script started successfully", file=logfile_handler)
-                logfile_handler.flush()
+                print("Remote script started successfully")
+                # print("Remote script started successfully", file=logfile_handler)
+                # logfile_handler.flush()
                 
                 # Keep the connection alive until stop is requested
                 stop_requested.wait()
                 
-                print("Stopping remote process...", file=logfile_handler)
-                logfile_handler.flush()
+                print("Stopping remote process...")
+                # print("Stopping remote process...", file=logfile_handler)
+                # logfile_handler.flush()
                 
                 # Send interrupt signal to remote process
                 print("closing stdin")
@@ -801,8 +807,9 @@ def activate_ssh(
                     try:
                         remaining_output = stdout.read()
                         if remaining_output:
-                            print(f"[STDOUT]: {remaining_output}", file=logfile_handler)
-                            logfile_handler.flush()
+                            print(f"[STDOUT]: {remaining_output}")
+                            # print(f"[STDOUT]: {remaining_output}", file=logfile_handler)
+                            # logfile_handler.flush()
                     except Exception as e:
                         print("err out",e)
                 
@@ -811,8 +818,9 @@ def activate_ssh(
                     try:
                         remaining_errors = stderr.read()
                         if remaining_errors:
-                            print(f"[STDERR]: {remaining_errors}", file=logfile_handler)
-                            logfile_handler.flush()
+                            print(f"[STDERR]: {remaining_errors}")
+                            # print(f"[STDERR]: {remaining_errors}", file=logfile_handler)
+                            # logfile_handler.flush()
                     except Exception as e:
                         print("err", e)
                 
@@ -841,8 +849,9 @@ def activate_ssh(
         stop_requested.set()
         return lambda: None
     
-    print("SSH connection established", file=logfile_handler)
-    logfile_handler.flush()
+    print("SSH connection established")
+    # print("SSH connection established", file=logfile_handler)
+    # logfile_handler.flush()
     class Stopper:
         def  __call__(self, *args: Any, **kwds: Any) -> Any:
             """Stop the remote process and close SSH connection"""
