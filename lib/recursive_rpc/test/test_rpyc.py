@@ -12,7 +12,6 @@ class Holder:
 
 def caller(func, printer, *args, **kwargs):
     import os
-    
     func()
     printer(args, kwargs, os.getpid())
     
@@ -54,6 +53,7 @@ c.execute(inspect.getsource(Holder))
 print(c.eval("Holder(5).x"))
 
 from textwrap import dedent
+
 def indented():
     class Holder_2:
         def __init__(self, x):

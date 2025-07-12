@@ -103,7 +103,7 @@ def main():
             print(f"execution time: {time.time() - start_time:.2f} seconds")
     if True:
         pass
-    
+
 ################################################################
 
 if __name__ == "__main__":
