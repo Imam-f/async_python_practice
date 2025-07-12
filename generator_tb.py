@@ -9,17 +9,6 @@ class OpCode(Enum):
 class PipelineData(NamedTuple):
     op: OpCode
     value: int
-from typing import Generator, Tuple, NamedTuple
-from enum import Enum, auto
-
-class OpCode(Enum):
-    HOLD = auto()
-    INCREMENT = auto()
-    RESET = auto()
-
-class PipelineData(NamedTuple):
-    op: OpCode
-    value: int
 
 def pipelined_counter_module(
     width: int = 4,
@@ -126,7 +115,7 @@ def testbench_module_old(
             start_signal = 0
 
         yield (reset_signal, start_signal)
-        
+
 def testbench_module(num_cycles: int = 30) -> Generator[Tuple[int, int], None, None]:
     """
     A generator that produces stimuli using relative time delays.
