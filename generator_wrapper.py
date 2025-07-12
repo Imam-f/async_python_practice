@@ -61,7 +61,6 @@ class GeneratorWrapper:
         if self.generator:
             self.generator.close()
 
-
 # Example usage with a simple counter generator
 def counter_generator(state):
     """Example generator that maintains a counter."""
@@ -91,7 +90,6 @@ def counter_generator(state):
         
         # Yield output
         output = {'count': count, 'message': f'Current count: {count}'}
-
 
 # Example usage
 if __name__ == "__main__":
