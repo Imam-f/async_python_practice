@@ -14,6 +14,9 @@ from multiprocess import Pool
 
 import rpyc
 
+old_print = print
+print = lambda *args, **kwargs: None
+
 ##################################################################
 
 @dataclass
@@ -274,7 +277,6 @@ class Recursive_RPC:
                 if v and v.status():
                     yield v.get()
                     cls[i] = None
-    
 class RPC_Future:
     """
     This class is a placeholder of future value
