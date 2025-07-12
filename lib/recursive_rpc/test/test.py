@@ -25,25 +25,31 @@ def main():
     PORT = int(os.getenv("PORT")) if os.getenv("PORT") else 22
     PASSWORD = os.getenv("PASSWORD") if os.getenv("PASSWORD") else None
     
-    remote_port = [18812, 18813, 18814]
+    remote_port = [18812, 18813, 18814, 18815]
     stop = activate_ssh(HOSTNAME, 
                         USER, 
                         PORT, 
                         PASSWORD, 
                         remote_port[0])
     # stop()
+    stop2 = activate_ssh(HOSTNAME, 
+                        USER, 
+                        PORT, 
+                        PASSWORD, 
+                        remote_port[3])
 
     HOSTNAME_FORWARD = HOSTNAME
     PORT_FORWARD = PORT
     ssh_login = (USER, PASSWORD)
     
     with Recursive_RPC(client=[
-                proxyprocess(remote_port[1], HOSTNAME_FORWARD, PORT_FORWARD, [
-                    localprocess(4),
-                    networkprocess(2, HOSTNAME, remote_port[2], "tag1")
-                ], ssh_login, {"tag1": (HOSTNAME, USER, PORT, PASSWORD, remote_port[2])}),
-                localprocess(2),
-                networkprocess(2, HOSTNAME, remote_port[0], stop)
+                # proxyprocess(remote_port[1], HOSTNAME_FORWARD, PORT_FORWARD, [
+                #     localprocess(4),
+                #     networkprocess(2, HOSTNAME, remote_port[2], "tag1")
+                # ], ssh_login, {"tag1": (HOSTNAME, USER, PORT, PASSWORD, remote_port[2])}),
+                # localprocess(2),
+                networkprocess(2, HOSTNAME, remote_port[0], stop),
+                networkprocess(2, HOSTNAME, remote_port[3], stop2)
             ], conn={}) as pool:
         
         # Create a list of numbers to process
