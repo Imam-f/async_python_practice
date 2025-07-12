@@ -9,15 +9,12 @@ import traceback
 def worker_func(number):
     # time.sleep(random.random() * 2)  # Simulate a time-consuming task
     sum_num = 0
-    for i in range(30000000):
-    # for i in range(300000):
+    # for i in range(30000000):
+    for i in range(300000):
         sum_num += i
     # print(number, sum)
     return number * number
 
-# TODO: add ssh tunnelling
-
-# $env:Path = "C:\Users\User\.local\bin;$env:Path"
 def main():
     # Create a pool of worker processes
     # The number of processes is set to the number of CPU cores
@@ -28,17 +25,17 @@ def main():
     PASSWORD = os.getenv("PASSWORD") if os.getenv("PASSWORD") else None
     
     remote_port = [18812, 18813, 18814]
-    stop = activate_ssh(HOSTNAME, 
-                        USER, 
-                        PORT, 
-                        PASSWORD, 
-                        remote_port[0])
-
-    # stop2 = activate_ssh(HOSTNAME, 
+    # stop = activate_ssh(HOSTNAME, 
     #                     USER, 
     #                     PORT, 
     #                     PASSWORD, 
-    #                     remote_port[1])
+    #                     remote_port[0])
+
+    stop2 = activate_ssh(HOSTNAME, 
+                        USER, 
+                        PORT, 
+                        PASSWORD, 
+                        remote_port[1])
     
     HOSTNAME_FORWARD = HOSTNAME
     PORT_FORWARD = PORT
@@ -46,11 +43,11 @@ def main():
     
     with Recursive_RPC(client=[
                 proxyprocess(remote_port[2], HOSTNAME_FORWARD, PORT_FORWARD, [
-                    # localprocess(4),
-                    # networkprocess(2, HOSTNAME, remote_port[1], stop2)
+                    localprocess(4),
+                    networkprocess(2, HOSTNAME, remote_port[1], stop2)
                 ], ssh_login),
-                localprocess(2),
-                networkprocess(4, HOSTNAME, remote_port[0], stop)
+                # localprocess(2),
+                # networkprocess(4, HOSTNAME, remote_port[0], stop)
             ]) as pool:
         
         # Create a list of numbers to process

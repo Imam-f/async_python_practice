@@ -375,7 +375,6 @@ class NetworkRunner(Runner):
         self.process_handle: list[RPC_Future] = []
         # stop = activate_ssh(os.getenv("HOSTNAME"), os.getenv("USER"), os.getenv("PORT"), os.getenv("PASSWORD"))
         
-
     def run(self, func, /, *args, **kwargs) -> RPC_Future:
         # teleport function
         self.conn.teleport(func)
@@ -395,7 +394,8 @@ class NetworkRunner(Runner):
         except Exception as e:
             print("close", e)
         self.conn = None
-        self.ssh_con()
+        if self.ssh_con is not None:
+            self.ssh_con()
 
     def status(self) -> tuple[bool, int, int]:
         for i,v in enumerate(self.process_handle):
@@ -426,8 +426,11 @@ class ProxyRunner(Runner):
                                 self.port, 
                                 password, 
                                 num)
+            
             self.conn = rpyc.classic.connect(host, port=num)
             self.conn.execute("import recursive_rpc as rp")
+            self.conn.execute("import dill")
+            self.conn.execute("dill.settings['recurse'] = True")
             self.conn.execute("runner_list = []")
         
         self.process_num: int = 0
@@ -435,23 +438,22 @@ class ProxyRunner(Runner):
         self.connection: list[Runner] = []
         self.process_handle: list[RPC_Future] = []
         
+        self.drop_list = []
+        
         for index, val in enumerate(clientlist):
             match val:
                 case localprocess(i):
                     if host is not None:
-                        # TODO: fix function serialization
-                        # self.conn.execute("runner_list.append(rp.ProcessRunner(" + str(i) + "))")
-                        # runner = self.conn.namespace["runner_list"][-1]
-                        # TODO: create ssh
-                        runner = NetworkRunner(i, self.host, self.port, None)
+                        self.conn.execute("runner_list.append(rp.ProcessRunner(" + str(i) + "))")
+                        runner = self.conn.namespace["runner_list"][-1]
                     else:
                         runner = ProcessRunner(i)
                 case networkprocess(i, j, k, l):
                     if host is not None:
-                        # TODO: create ssh
                         self.conn.execute("runner_list.append(rp.NetworkRunner("\
                             + str(i)+ ", " + "\"" + str(j) + "\""  \
-                            + ", " + str(k) + "," + str(l) + "))")
+                            + ", " + str(k) + ", None))")
+                        self.drop_list.append(l)
                         runner = self.conn.namespace["runner_list"][-1]
                     else:
                         runner = NetworkRunner(i, j, k, l)
@@ -462,8 +464,7 @@ class ProxyRunner(Runner):
                             + ", " + str(k) + ", " + str(l) + "))")
                         runner = self.conn.namespace["runner_list"][-1]
                     else:
-                        # TODO: pass correct parameter
-                        runner = ProxyRunner(i, j, k, l, m)
+                        raise NotImplementedError("This causes an infinite loop")
                 case _:
                     raise TypeError
             self.process_num += runner.process_num
@@ -476,30 +477,39 @@ class ProxyRunner(Runner):
         return rand
 
     def run(self, func, /, *args, **kwargs):
+        runner: Runner = self.schedule()
+        if not runner:
+            raise RuntimeError("No runner")
+        
         # teleport function
         if self.host is not None:
             self.conn.teleport(func)
             self.conn.namespace["args"] = args
             self.conn.namespace["kwargs"] = kwargs
-        # 
-        # self.conn.execute("result = async_pool.apply_async(worker_func, args, kwargs)")
-        # 
-        # result = self.conn.namespace["result"]
-        # self.process_handle.append(RPC_Future(result, self))
-        # return self.process_handle[-1]
-        runner: Runner = self.schedule()
-        if not runner:
-            raise RuntimeError("No runner")
         
-        return runner.run(func, *args, **kwargs)
+            run_lst: list = self.conn.namespace["runner_list"]
+            runner_index = run_lst.index(runner)
+            self.conn.execute(f"result = runner_list[{runner_index}].run(worker_func, *args, **kwargs)")
+            
+            result = self.conn.namespace["result"]
+            # print(self.conn.eval("type(result)"))
+            # print(self.conn.eval("dir(result)"))
+            # self.process_handle.append(RPC_Future(result, self))
+            self.process_handle.append(result)
+            future_instance = self.process_handle[-1]
+        else:
+            future_instance = runner.run(func, *args, **kwargs)
+        
+        return future_instance
 
     def close(self):
         for i in self.connection:
             i.close()
         self.connection.clear()
+        for i in self.drop_list:
+            i()
         if self.stop:
             self.stop()
-        self.connection = None
 
     def status(self) -> tuple[bool, int, int]:
         for i,v in enumerate(self.process_handle):
