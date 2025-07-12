@@ -4,6 +4,7 @@ import os
 from dotenv import load_dotenv
 load_dotenv()
 import traceback
+
 #################################################################
 
 def worker_func(number):
@@ -98,7 +99,6 @@ def main():
             print("Results 6:", i)
         print(f"execution time: {time.time() - start_time:.2f} seconds")
     
-
 ################################################################
 
 if __name__ == "__main__":
