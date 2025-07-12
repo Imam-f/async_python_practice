@@ -3,6 +3,7 @@ from typing import Generator, TypeVar, Callable, Any
 import time
 import os
 import random
+import types
 import platform
 # import concurrent.futures as ft
 # import multiprocessing
@@ -459,9 +460,14 @@ class ProxyRunner(Runner):
                         runner = NetworkRunner(i, j, k, l)
                 case proxyprocess(i, j, k, l, m):
                     if host is not None:
-                        # TODO: fix this behaviour
+                        # TODO: fix this behaviourclass proxyprocess(tupleprocess):
+                        # number: int
+                        # host: str | None
+                        # port: int | None
+                        # client: list["localprocess | networkprocess | proxyprocess"]
+                        # ssh_login: Tuple
                         self.conn.execute("runner_list.append(rp.ProxyRunner(" + str(i) + ", " + str(j) \
-                            + ", " + str(k) + ", " + str(l) + "))")
+                            + ", " + str(k) + ", " + str(l) + ", " + str(m) + "))")
                         runner = self.conn.namespace["runner_list"][-1]
                     else:
                         raise NotImplementedError("This causes an infinite loop")
@@ -753,12 +759,21 @@ def activate_ssh(
     
     print("SSH connection established")
     
-    def stop():
-        """Stop the remote process and close SSH connection"""
-        if not stop_requested.is_set():
-            print("Requesting stop...")
-            stop_requested.set()
-            ssh_thread.join(timeout=60)
-            print("Remote process stopped")
+    class Stopper:
+        def  __call__(self, *args: Any, **kwds: Any) -> Any:
+            """Stop the remote process and close SSH connection"""
+            if not stop_requested.is_set():
+                print("Requesting stop...")
+                stop_requested.set()
+                ssh_thread.join(timeout=60)
+                print("Remote process stopped")
+        
+        def __repr__(self) -> str:
+            return "None"
+        
+        def __str__(self) -> str:
+            return "None"
+
+    stop = Stopper()
     
     return stop

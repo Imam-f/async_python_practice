@@ -40,6 +40,16 @@ def main():
     HOSTNAME_FORWARD = HOSTNAME
     PORT_FORWARD = PORT
     ssh_login = (USER, PASSWORD)
+
+    print(stop2, str(stop2))
+    print(localprocess(2),
+            networkprocess(4, HOSTNAME, remote_port[0], stop2))
+    print(proxyprocess(remote_port[2], HOSTNAME_FORWARD, PORT_FORWARD, [
+                    localprocess(4),
+                    networkprocess(2, HOSTNAME, remote_port[1], stop2)
+                ], ssh_login))
+    stop2()
+    return
     
     with Recursive_RPC(client=[
                 proxyprocess(remote_port[2], HOSTNAME_FORWARD, PORT_FORWARD, [
