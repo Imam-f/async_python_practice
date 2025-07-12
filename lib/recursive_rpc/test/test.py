@@ -31,20 +31,19 @@ def main():
                         PORT, 
                         PASSWORD, 
                         remote_port[0])
-    stop()
+    # stop()
 
     HOSTNAME_FORWARD = HOSTNAME
     PORT_FORWARD = PORT
     ssh_login = (USER, PASSWORD)
-    print(HOSTNAME_FORWARD, USER, PORT_FORWARD, ssh_login)
     
     with Recursive_RPC(client=[
                 proxyprocess(remote_port[1], HOSTNAME_FORWARD, PORT_FORWARD, [
                     # localprocess(4),
                     networkprocess(2, HOSTNAME, remote_port[2], "tag1")
                 ], ssh_login, {"tag1": (HOSTNAME, USER, PORT, PASSWORD, remote_port[2])}),
-                # localprocess(2),
-                # networkprocess(4, HOSTNAME, remote_port[0], stop)
+                localprocess(2),
+                networkprocess(4, HOSTNAME, remote_port[0], stop)
             ], conn={}) as pool:
         
         # Create a list of numbers to process
