@@ -15,7 +15,7 @@ from multiprocess import Pool
 import rpyc
 
 old_print = print
-print = lambda *args, **kwargs: None
+# print = lambda *args, **kwargs: None
 
 ##################################################################
 
@@ -561,6 +561,21 @@ class ProxyRunner(Runner):
             self.conn.namespace["args"] = args
             self.conn.namespace["kwargs"] = kwargs
         
+            # self.conn.namespace["printdata"] = print
+            # print("=======================================")
+            # import sys
+            # self.conn.modules.sys.stdout = sys.stdout
+            # self.conn.execute("printdata(args)")
+            # self.conn.execute("print(kwargs)")
+            # num = [5]
+            # def addnum():
+            #     num[0] += 2
+            # print(num)
+            # self.conn.namespace["addnum"] = addnum
+            # self.conn.execute("addnum()")
+            # print(num)
+            # print("=======================================")
+            
             run_lst: list = self.conn.namespace["runner_list"]
             runner_index = run_lst.index(runner)
             self.conn.execute(f"result = runner_list[{runner_index}].run(worker_func, *args, **kwargs)")
