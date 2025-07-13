@@ -5,13 +5,15 @@ from dotenv import load_dotenv
 load_dotenv()
 import traceback
 
+from queue import Queue
+
 #################################################################
 
 def worker_func(number):
     # time.sleep(random.random() * 2)  # Simulate a time-consuming task
     sum_num = 0
-    # for i in range(30000000):
-    for i in range(300000):
+    for i in range(30000000):
+    # for i in range(300000):
         sum_num += i
     # print(number, sum)
     return number * number
@@ -26,32 +28,32 @@ def main():
     PASSWORD = os.getenv("PASSWORD") if os.getenv("PASSWORD") else None
     
     remote_port = [18812, 18813, 18814, 18815]
-    stop = activate_ssh(HOSTNAME,
-                        USER,
-                        PORT,
-                        PASSWORD,
-                        remote_port[0])
+    # stop = activate_ssh(HOSTNAME,
+    #                     USER,
+    #                     PORT,
+    #                     PASSWORD,
+    #                     remote_port[0])
     # stop()
-    stop2 = activate_ssh(HOSTNAME,
-                        USER,
-                        PORT,
-                        PASSWORD,
-                        remote_port[3])
+    # stop2 = activate_ssh(HOSTNAME,
+    #                     USER,
+    #                     PORT,
+    #                     PASSWORD,
+    #                     remote_port[3])
     # stop2()
 
     HOSTNAME_FORWARD = HOSTNAME
     PORT_FORWARD = PORT
     ssh_login = (USER, PASSWORD)
     
-    if True:
+    if False:
         with Recursive_RPC(client=[
-                    proxyprocess(remote_port[1], HOSTNAME_FORWARD, PORT_FORWARD, [
-                        localprocess(4),
-                        networkprocess(2, HOSTNAME, remote_port[2], "tag1")
-                    ], ssh_login, {"tag1": (HOSTNAME, USER, PORT, PASSWORD, remote_port[2])}),
-                    localprocess(2),
-                    networkprocess(2, HOSTNAME, remote_port[0], stop),
-                    networkprocess(2, HOSTNAME, remote_port[3], stop2)
+                    # proxyprocess(remote_port[1], HOSTNAME_FORWARD, PORT_FORWARD, [
+                    #     localprocess(4),
+                    #     networkprocess(2, HOSTNAME, remote_port[2], "tag1")
+                    # ], ssh_login, {"tag1": (HOSTNAME, USER, PORT, PASSWORD, remote_port[2])}),
+                    localprocess(8),
+                    # networkprocess(2, HOSTNAME, remote_port[0], stop),
+                    # networkprocess(2, HOSTNAME, remote_port[3], stop2)
                 ], conn={}) as pool:
             
             # Create a list of numbers to process
@@ -102,7 +104,55 @@ def main():
                 print("Results 6:", i)
             print(f"execution time: {time.time() - start_time:.2f} seconds")
     if True:
-        pass
+        with Recursive_RPC(client=[
+                    # proxyprocess(remote_port[1], HOSTNAME_FORWARD, PORT_FORWARD, [
+                    #     localprocess(4),
+                    #     networkprocess(2, HOSTNAME, remote_port[2], "tag1")
+                    # ], ssh_login, {"tag1": (HOSTNAME, USER, PORT, PASSWORD, remote_port[2])}),
+                    localprocess(2),
+                    # networkprocess(2, HOSTNAME, remote_port[0], stop),
+                    # networkprocess(2, HOSTNAME, remote_port[3], stop2)
+                ], conn={}) as pool:
+            
+            queue = Queue()
+            # queue_put = lambda x: queue.put(x)
+            # queue_get = lambda: queue.get()
+            queue_put = queue
+            queue_get = queue
+            value1 = pool.apply_async(value_producer, queue_put, print)
+            value2 = pool.apply_async(value_consumer, queue_get, print)
+            print(value1.get())
+            print(value2.get())
+
+def value_producer(queue, print):
+    import time
+    import os
+    print("Hello", os.getpid())
+    for i in range(10):
+        print("Hello", i)
+        if callable(queue):
+            queue(i)
+        else:
+            queue.put(i)
+        time.sleep(0.2)
+        # print(i)
+    if callable(queue):
+        queue(None)
+    else:
+        queue.put(None)
+
+def value_consumer(queue, print):
+    import os
+    print("Inigo Montoya", os.getpid())
+    item = 0
+    while True:
+        if callable(queue):
+            item = queue()
+        else:
+            item = queue.get()
+        if item is None:
+            return 5
+        print(item + 7)
 
 ################################################################
 

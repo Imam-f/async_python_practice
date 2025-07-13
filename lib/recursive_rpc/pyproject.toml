@@ -8,12 +8,11 @@ authors = [
 ]
 requires-python = ">=3.10"
 dependencies = [
-    "dill>=0.4.0",
-    "multiprocess>=0.70.18",
     "paramiko>=3.5.1",
     "python-dotenv>=1.1.1",
     "rpyc>=6.0.2",
     "scp>=0.15.0",
+    "uv>=0.7.20",
 ]
 
 [build-system]

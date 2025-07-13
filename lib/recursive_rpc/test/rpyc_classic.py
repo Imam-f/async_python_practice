@@ -3,11 +3,11 @@
 # requires-python = ">=3.10"
 # dependencies = [
 #     "multiprocess",
-#     "recursive-rpc",
+#     "recursive_rpc",
 # ]
 #
 # [tool.uv.sources]
-# recursive-rpc = { path = "C:/Users/User/Documents/Dev/experiment/async_python_practice/lib/recursive_rpc", editable = true }
+# recursive_rpc = { path = "C:/Users/User/Documents/Dev/experiment/async_python_practice/lib/recursive_rpc", editable = true }
 # ///
 
 from rpyc.cli.rpyc_classic import *
