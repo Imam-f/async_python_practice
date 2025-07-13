@@ -6,21 +6,22 @@ import platform
 import sys
 from dataclasses import dataclass
 
-import paramiko
-from scp import SCPClient
-
-# from threading import Thread, Event
-
 from concurrent.futures import Future, ProcessPoolExecutor
 from threading import Thread
 
-# import multiprocess as multiprocessing
-# from multiprocess import Pool
-
+import tempfile
+import inspect
+import recursive_rpc.rpyc_classic as cl
 import rpyc
 
 old_print = print
+
+# import paramiko
+# from scp import SCPClient
+
 # print = lambda *args, **kwargs: None
+# import multiprocess as multiprocessing
+# from multiprocess import Pool
 
 ##################################################################
 
@@ -626,9 +627,8 @@ class ProxyRunner(Runner):
 
 #################################################################
 
-
-def start_rpyc_server(port: int = 18812):
-    run_uv(["run", "rpyc_classic.py", "-p", str(port), "-m", "oneshot"])
+def start_rpyc_server(port: int = 18812, f_name: str = "rpyc_classic.py"):
+    run_uv(["run", f_name, "-p", str(port), "-m", "oneshot"])
 
 class Pool:
     def __init__(self, max_workers: int):
@@ -638,11 +638,25 @@ class Pool:
         # connect to rpyc server
         self.max_workers = self.pool._max_workers
         self.scheduler = []
-        for i in range(max_workers):
-            self.pool.submit(start_rpyc_server, 18812 + i)
-            conn = rpyc.classic.connect("localhost", port=18812 + i)
-            self.scheduler.append(conn)
-            
+        
+        try:
+            f_name = f".rpyc_temp{int(10000 * random.random())}.py"
+            if os.path.exists(f_name):
+                f_name = f".rpyc_temp{int(10000 * random.random())}.py"
+                
+            f = open(f_name, "w")
+            print(f_name)
+            print(inspect.getsource(cl))
+            print(f.write(inspect.getsource(cl)))
+            f.close()
+        
+            for i in range(max_workers):
+                self.pool.submit(start_rpyc_server, 18812 + i, f_name)
+                conn = rpyc.classic.connect("localhost", port=18812 + i)
+                self.scheduler.append(conn)
+        finally:
+            os.remove(f_name)
+
         # assign to scheduler
         self.scheduler_index = 0
         self.scheduler_status: list[bool] = [False] * self.max_workers
@@ -684,8 +698,6 @@ class Pool:
         
         thread = Thread(target=function_async, args=args, kwargs=kwargs)
         thread.start()
-        # function_async = rpyc.async_(function)
-        # result = function_async(*args, **kwargs)
         return result_future
 
     def close(self):
@@ -695,6 +707,8 @@ class Pool:
     
     def __del__(self):
         self.close()
+
+#################################################################
 
 from uv import find_uv_bin
 
@@ -735,8 +749,9 @@ def run_uv(args) -> None:
     else:
         os.execvpe(uv, [uv, *args], env=env)
 
+#################################################################
 
-class RemoteUVRunner:
+class RemoteUVRunner_old:
     """
     A class to manage SSH connections for running Python scripts with 'uv'.
 
@@ -864,9 +879,7 @@ class RemoteUVRunner:
         """Context manager exit point: disconnects from the host."""
         self.disconnect()
 
-#################################################################
-
-def activate_ssh(
+def activate_ssh_old(
             host: str, 
             user: str, 
             port: int, 
