@@ -1,8 +1,7 @@
-#!/usr/bin/env python
+#!/usr/bin/env -S uv run --script
 # /// script
 # requires-python = ">=3.10"
 # dependencies = [
-#     "multiprocess",
 #     "recursive_rpc",
 # ]
 #
