@@ -181,7 +181,7 @@ wheels = [
 ]
 
 [[package]]
-name = "recursive-rpc"
+name = "recursiverpc"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [

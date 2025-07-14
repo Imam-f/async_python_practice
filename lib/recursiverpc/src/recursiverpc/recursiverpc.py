@@ -14,7 +14,11 @@ from threading import Thread
 import inspect
 import rpyc
 from rpyc.utils.zerodeploy import DeployedServer
+from rpyc.utils.zerodeploy import SERVER_SCRIPT
+
 from plumbum import SshMachine, TF
+from plumbum.commands import CommandNotFound, ProcessExecutionError
+from plumbum.commands.base import BoundCommand
 from plumbum.machines.paramiko_machine import ParamikoMachine
 
 old_print = print
@@ -367,13 +371,17 @@ class NetworkRunner(Runner):
             case SshMachine() | ParamikoMachine():
                 self.machine = con
                 try:
+                    # env_cmd = self.machine["/usr/bin/env"]
+                    # print(env_cmd("pwd".split(" ")))
+                    # print(env_cmd("env".split(" ")))
+                    # print(env_cmd(".local/bin/uv --version".split(" ")))
+                    
                     env_cmd = self.machine["/c/Program\\ Files/Git/usr/bin/env"]
-                    print(env_cmd("uv --version".split(" ")))
-                    uv_cmd = self.machine['.local/bin/uv']
+                    # uv_cmd = self.machine['.local/bin/uv', "--version"]
+                    uv_cmd = env_cmd("uv --version".split(" "))
                 except:
                     raise RuntimeError("uv not installed")
                 
-                from rpyc.utils.zerodeploy import SERVER_SCRIPT
                 
                 # read requirements txt with uv
                 header = "#!/usr/bin/env uv run --script\n"
@@ -387,10 +395,10 @@ class NetworkRunner(Runner):
                     os.system(f"uv add --active -r requirements.txt --script util.py")
                     with open("util.py", "r") as f:
                         lines = f.read()
-                        newlines = lines.replace("recursive-rpc = { path = \"../../../../Documents/Dev/experiment/"
-                                      "async_python_practice/lib/recursive_rpc\" }", 
-                                      "recursive-rpc = { path = \"C:/Users/User/Documents/Dev/experiment/"
-                                      "async_python_practice/lib/recursive_rpc\" }")
+                        newlines = lines.replace("recursiverpc = { path = \"../../../../Documents/Dev/experiment/"
+                                      "async_python_practice/lib/recursiverpc\" }", 
+                                      "recursiverpc = { path = \"C:/Users/User/Documents/Dev/experiment/"
+                                      "async_python_practice/lib/recursiverpc\" }")
                         header += newlines
                     print(header)
                     os.chdir(curdir)
@@ -406,19 +414,42 @@ class NetworkRunner(Runner):
                 major = sys.version_info[0]
                 minor = sys.version_info[1]
                 
-                print(server_script_user)
-                os._exit(0)
+                # print(server_script_user)
                 
-                # executable = [f"python{major}.{minor}"]
+                # executable = self.machine["uv run " +\
+                #                           f"--python {major}.{minor} --script"]
                 executable = f"uv run --python {major}.{minor} --script"
-                self.server = DeployedServer(self.machine,
+                executable = env_cmd["uv", "run", "--python", f"{major}.{minor}", "--script"]
+                # from textwrap import dedent
+                # script = dedent("""\
+                #     from rpyc.cli.rpyc_classic import *
+                #     if __name__ == "__main__":
+                #         main()
+                #     """)
+                # print(script)
+                # executable = self.machine["/c/Program\\ Files/Git/usr/bin/env uv run " +\
+                #                           f"--python {major}.{minor} --script"]
+                # print(executable())
+                
+                self.server = DeployedWindowsServer(self.machine,
+                                            #  server_script=server_script_user,
+                                             server_script=server_script_user,
                                              extra_setup=extra_setup,
                                              python_executable=executable)
+                
                 
                 # check uv
                 # start with uv
                 
                 self.conn = self.server.classic_connect()
+                # self.conn.close()
+                # if self.server is not None:
+                #     self.server.close()
+                # if self.machine is not None:
+                #     self.machine.close()
+                
+                # os._exit(0)
+                
                 # print("connected")
                 # if self.machine['uv --version']() & TF(1):
                 #     raise RuntimeError("uv not installed")
@@ -444,7 +475,7 @@ class NetworkRunner(Runner):
         
         # check dependency
         # run pool on remote instance
-        self.conn.execute("from recursive_rpc import *")
+        self.conn.execute("from recursiverpc import *")
         self.conn.execute(f"pool = ProcessRunner({self.process_num})")
         
         # self.conn.execute("from multiprocess import Pool as Pl")
@@ -463,12 +494,21 @@ class NetworkRunner(Runner):
         return self.process_handle[-1]
 
     def close(self):
-        self.conn.execute("pool.close()")
-        self.conn.close()
+        try:
+            self.conn.execute("pool.close()")
+        except:
+            pass
+        try:
+            self.conn.close()
+        except:
+            pass
         if self.server is not None:
             self.server.close()
         if self.machine is not None:
             self.machine.close()
+    
+    def __del__(self):
+        self.close()
 
     def status(self) -> tuple[bool, int, int, int]:
         for i,v in enumerate(self.process_handle):
@@ -730,3 +770,122 @@ class Pool:
     
     def __del__(self):
         self.close()
+
+#################################################################
+
+
+class DeployedWindowsServer(DeployedServer):
+    def __init__(self: DeployedServer,
+                remote_machine: SshMachine | ParamikoMachine,
+                server_class="rpyc.utils.server.ThreadedServer",
+                service_class="rpyc.core.service.SlaveService",
+                server_script=SERVER_SCRIPT,
+                extra_setup="",
+                python_executable=None) -> None:
+        # super().__init__()
+        self.proc = None
+        self.tun = None
+        self.remote_machine = remote_machine
+        self._tmpdir_ctx = None
+        
+        class tempdir:
+            def __init__(self, remote_machine):
+                self.remote_machine = remote_machine
+                env_cmd = remote_machine["/c/Program\\ Files/Git/usr/bin/env"]
+                self.origdir = env_cmd["pwd"]().strip()
+                tempdir = env_cmd["mktemp"]("-d").strip()
+                self.path = tempdir
+            
+            def __enter__(self):
+                self.remote_machine.cwd.chdir(self.path)
+                return self.path
+            
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                self.remote_machine.cwd.chdir(self.origdir)
+                env_cmd = self.remote_machine["/c/Program\\ Files/Git/usr/bin/env"]
+                env_cmd["rm"]("-rf", self.path)
+
+        self._tmpdir_ctx = tempdir(remote_machine)
+        tmp = self._tmpdir_ctx.__enter__()
+        print(tmp)
+        
+        # self._tmpdir_ctx.__exit__(None, None, None)
+        # os._exit(0)
+        
+        server_modname, server_clsname = server_class.rsplit(".", 1)
+        service_modname, service_clsname = service_class.rsplit(".", 1)
+
+        for source, target in (
+            ("$SERVER_MODULE$", server_modname),
+            ("$SERVER_CLASS$", server_clsname),
+            ("$SERVICE_MODULE$", service_modname),
+            ("$SERVICE_CLASS$", service_clsname),
+            ("$EXTRA_SETUP$", extra_setup),
+        ):
+            server_script = server_script.replace(source, target)
+
+        # script.write(server_script)
+        # write server script with bash command
+        env_cmd = remote_machine["/c/Program\\ Files/Git/usr/bin/env"]
+        s = remote_machine.session()
+        # print(s.run(f"cd {tmp}"))
+        s.run(f"cd {tmp}")
+        # print(s.run("pwd > tmp.txt"))
+        # print(s.run("cat tmp.txt"))
+        for line in server_script.split("\n"):
+            # print("line:", line)
+            # print(s.run(f"echo '{line}' >> server.py"))
+            s.run(f"echo '{line}' >> server.py")
+        # print(s.run(f"tee server.py <<EOF\n{server_script}\nEOF\n"))
+        # print(s.run("cat server.py"))
+        script = s.run(f"pwd")[1].strip() + "/server.py"
+        print(s.run(f"pwd"))
+        print(s.run(f"ls server.py"))
+        print(script)
+        del s
+        
+        # self._tmpdir_ctx.__exit__(None, None, None)
+        # os._exit(0)
+        
+        if isinstance(python_executable, BoundCommand):
+            cmd = python_executable
+        elif python_executable:
+            cmd = remote_machine[python_executable]
+        else:
+            major = sys.version_info[0]
+            minor = sys.version_info[1]
+            cmd = None
+            for opt in [f"python{major}.{minor}", f"python{major}"]:
+                try:
+                    cmd = remote_machine[opt]
+                except CommandNotFound:
+                    pass
+                else:
+                    break
+            if not cmd:
+                cmd = remote_machine.python
+
+        self.proc = cmd.popen(script, new_session=True)
+
+        line = ""
+        try:
+            print("reading remote port")
+            line = self.proc.stdout.readline()
+            self.remote_port = int(line.strip())
+        except Exception:
+            try:
+                self.proc.terminate()
+            except Exception:
+                pass
+            stdout, stderr = self.proc.communicate()
+            from rpyc.lib.compat import BYTES_LITERAL
+            raise ProcessExecutionError(self.proc.argv, self.proc.returncode, BYTES_LITERAL(line) + stdout, stderr)
+
+        print("connecting")
+        if hasattr(remote_machine, "connect_sock"):
+            # Paramiko: use connect_sock() instead of tunnels
+            self.local_port = None
+        else:
+            self.local_port = rpyc.utils.factory._get_free_port()
+            self.tun = remote_machine.tunnel(self.local_port, self.remote_port)
+        
