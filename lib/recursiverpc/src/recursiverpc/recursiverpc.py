@@ -1,5 +1,5 @@
 from typing import Optional, List, Tuple
-from typing import Generator, TypeVar, Callable, Any, Dict
+from typing import Generator, TypeVar, Callable, Any, Dict, Generic
 import os
 import random
 import platform
@@ -186,7 +186,7 @@ class Recursive_RPC:
                 case networkprocess(i, j):
                     runner = NetworkRunner(i, j)
                 case proxyprocess(i, j, k, l, m, n):
-                    runner = ProxyRunner(i, j, k, l, m, n)
+                    runner = ProxyRunner(i, j, k, l, m, n) # type: ignore
                 case _:
                     raise TypeError
             self.weight[index] = runner.process_num
@@ -235,7 +235,7 @@ class Recursive_RPC:
         runner: Runner = self.schedule()
         if not runner:
             raise RuntimeError("No runner")
-        result = runner.run(func, *args, **kwargs)
+        result: RPC_Future = runner.run(func, *args, **kwargs)
         return result.get()
 
     def apply_async(self, func, /, *args, **kwargs) -> "RPC_Future":
@@ -287,7 +287,7 @@ class Recursive_RPC:
                     yield v.get()
                     cls.remove(v)
 
-class RPC_Future:
+class RPC_Future(Generic[T]):
     """
     This class is a placeholder of future value
     """
@@ -324,14 +324,12 @@ class Runner:
     def __init__(self):
         pass
 
-    def run(self, func, /, *args, **kwargs):
-        pass
+    def run(self, func: Callable[[T], U], /, *args, **kwargs) -> RPC_Future[U]:
+        ...
 
-    def close(self):
-        pass
+    def close(self): ...
 
-    def status(self):
-        pass
+    def status(self) -> Tuple: ...
 
 class ProcessRunner(Runner):
     def __init__(self, num: int):
@@ -661,7 +659,7 @@ class ProxyRunner(Runner):
         if self.stop:
             self.stop()
 
-    def status(self) -> tuple[bool, int, int]:
+    def status(self) -> tuple[bool, int, int, int]:
         for i,v in enumerate(self.process_handle):
             if self.process_handle[i].status():
                 self.process_handle.remove(v)
@@ -674,9 +672,6 @@ class ProxyRunner(Runner):
         return (is_pool_active, process_num, not_done_count, 0)
 
 #################################################################
-
-# def start_rpyc_server(port: int = 18812, f_name: str = "rpyc_classic.py"):
-#     run_uv(["run", f_name, "-p", str(port), "-m", "oneshot"])
 
 class Pool:
     def __init__(self, max_workers: int, offset: int = 0):
@@ -735,318 +730,3 @@ class Pool:
     
     def __del__(self):
         self.close()
-
-#################################################################
-# 
-# from uv import find_uv_bin
-# 
-# def _detect_virtualenv() -> str:
-#     """
-#     Find the virtual environment path for the current Python executable.
-#     """
-# 
-#     # If it's already set, then just use it
-#     value = os.getenv("VIRTUAL_ENV")
-#     if value:
-#         return value
-# 
-#     # Otherwise, check if we're in a venv
-#     venv_marker = os.path.join(sys.prefix, "pyvenv.cfg")
-# 
-#     if os.path.exists(venv_marker):
-#         return sys.prefix
-# 
-#     return ""
-# 
-# def run_uv(args) -> None:
-#     uv = os.fsdecode(find_uv_bin())
-# 
-#     env = os.environ.copy()
-#     venv = _detect_virtualenv()
-#     if venv:
-#         env.setdefault("VIRTUAL_ENV", venv)
-# 
-#     # Let `uv` know that it was spawned by this Python interpreter
-#     env["UV_INTERNAL__PARENT_INTERPRETER"] = sys.executable
-# 
-#     if sys.platform == "win32":
-#         import subprocess
-# 
-#         completed_process = subprocess.run([uv, *args], env=env)
-#         sys.exit(completed_process.returncode)
-#     else:
-#         os.execvpe(uv, [uv, *args], env=env)
-
-#################################################################
-
-class RemoteUVRunner_old:
-    """
-    A class to manage SSH connections for running Python scripts with 'uv'.
-
-    This class handles connecting to a remote host, copying a script,
-    and executing it using 'uv run', which manages dependencies defined
-    within the script's '/// script' block.
-
-    It can be used as a context manager to ensure the SSH connection
-    is properly closed.
-    """
-
-    def __init__(
-        self,
-        host: int | str,
-        user: str,
-        port: int = 22,
-        password: Optional[str] = None,
-        remote_temp_dir: str = "~/tmp",
-        ssh_key_path: Optional[str] = None,
-    ):
-        """
-        Initializes the RemoteUVRunner.
-
-        Args:
-            host (str): The remote server hostname or IP address.
-            user (str): The username for the SSH connection.
-            remote_temp_dir (str): The temporary directory on the remote host.
-            ssh_key_path (Optional[str]): Path to the private SSH key.
-        """
-        self.host = host
-        self.user = user
-        self.port = port
-        self.password = password
-        self.remote_temp_dir = remote_temp_dir
-        self.ssh_key_path = ssh_key_path
-        self.ssh_client: Optional[paramiko.SSHClient] = None
-
-    def connect(self):
-        """Establishes the SSH connection."""
-        if self.ssh_client and self.ssh_client.get_transport().is_active():
-            print("Already connected.")
-            return
-
-        try:
-            print(f"Connecting to {self.user}@{self.host}...")
-            self.ssh_client = paramiko.SSHClient()
-            self.ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            self.ssh_client.connect(
-                hostname=self.host,
-                username=self.user,
-                port=self.port,
-                password=self.password,
-                key_filename=self.ssh_key_path,
-            )
-        except Exception as e:
-            print(f"Failed to connect: {e}")
-            self.ssh_client = None
-            raise
-
-    def disconnect(self):
-        """Closes the SSH connection."""
-        if self.ssh_client:
-            print("Closing SSH connection.")
-            self.ssh_client.close()
-            self.ssh_client = None
-
-    def run_script(
-        self, local_script_path: str, script_args: Optional[List[str]] = None
-    ) -> Tuple[Any, Any, Any]:
-        """
-        Copies a script to the remote host and executes it with 'uv run'.
-
-        Args:
-            local_script_path (str): The local path to the Python script.
-            script_args (Optional[List[str]]): A list of command-line
-                                               arguments for the script.
-
-        Returns:
-            Tuple[str, str]: A tuple containing the stdout and stderr from the
-                             remote command execution.
-        """
-        if not self.ssh_client:
-            raise ConnectionError("Not connected. Call connect() first or use as a context manager.")
-
-        if not os.path.exists(local_script_path):
-            raise FileNotFoundError(f"Local script not found at: {local_script_path}")
-
-        script_filename = os.path.basename(local_script_path)
-        remote_script_path = f"{self.remote_temp_dir}/{script_filename}"
-
-        # 1. Copy the file using SCP
-        with SCPClient(self.ssh_client.get_transport()) as scp:
-            print(f"Copying {local_script_path} to {self.host}:{remote_script_path}...")
-            # scp.put(local_script_path, remote_script_path)
-            # check if file exists
-            sftp = self.ssh_client.open_sftp()
-            try:
-                print(sftp.stat(remote_script_path))
-            # if self.client(remote_script_path):
-            except (IOError, FileNotFoundError):
-                print(f"File {remote_script_path} does not exist")
-                scp.put(local_script_path, remote_script_path)
-
-        # 2. Construct and execute the command
-        args_str = " ".join(script_args) if script_args else ""
-        major, minor, patch = platform.python_version_tuple()
-        command = f"cd {self.remote_temp_dir} && uv run --python {major}.{minor}.{patch} --script {script_filename} {args_str}"
-
-        print(f"Executing remote command: {command}")
-        stdin, stdout, stderr = self.ssh_client.exec_command(command)
-
-        # It's important to read the streams before the connection closes
-        # stdout_str = stdout.read().decode("utf-8").strip()
-        # stderr_str = stderr.read().decode("utf-8").strip()
-
-        # return stdin, stdout_str, stderr_str
-        return stdin, stdout, stderr
-
-    def __enter__(self):
-        """Context manager entry point: connects to the host."""
-        self.connect()
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        """Context manager exit point: disconnects from the host."""
-        self.disconnect()
-
-def activate_ssh_old(
-            host: str, 
-            user: str, 
-            port: int, 
-            password: Optional[str] = None,
-            remote_port: int = 18812
-        ) -> Callable[[], None]:
-    """
-    Start a remote SSH process and return a stop function.
-    
-    Returns:
-        A callable that stops the remote process
-    """
-    
-    # logfile = "activate_ssh.log"
-    # logfile_handler = open(logfile, "w")
-    
-    print(f"Activating SSH connection to {host}:{port}...")
-    # print(f"Activating SSH connection to {host}:{port}...", file=logfile_handler)
-    # logfile_handler.flush()
-    
-    # Configuration
-    SCRIPT_TO_RUN = "rpyc_classic.py"
-    SCRIPT_ARGS = ["-m", "oneshot", "-p", str(remote_port)]
-    
-    # Shared state
-    runner = None
-    thread_running = Event()
-    stop_requested = Event()
-    
-    def ssh_runner():
-        nonlocal runner
-        try:
-            # Create and connect to remote host
-            with RemoteUVRunner(
-                host=host, 
-                user=user, 
-                port=port, 
-                password=password, 
-                remote_temp_dir="."
-            ) as runner:
-                print(f"Connected to {host}:{port}")
-                # print(f"Connected to {host}:{port}", file=logfile_handler)
-                # logfile_handler.flush()
-                
-                # Start the remote script
-                stdin, stdout, stderr = runner.run_script(
-                    local_script_path=SCRIPT_TO_RUN,
-                    script_args=SCRIPT_ARGS
-                )
-                
-                stdin.channel.setblocking(False)
-                thread_running.set()  # Signal that we're ready
-                
-                print("Remote script started successfully")
-                # print("Remote script started successfully", file=logfile_handler)
-                # logfile_handler.flush()
-                
-                # Keep the connection alive until stop is requested
-                stop_requested.wait()
-                
-                print("Stopping remote process...")
-                # print("Stopping remote process...", file=logfile_handler)
-                # logfile_handler.flush()
-                
-                # Send interrupt signal to remote process
-                print("closing stdin")
-                if stdin:
-                    try:
-                        stdin.channel.send('\x03')  # Send Ctrl+C
-                        # stdin.channel.flush()
-                    except Exception as e:
-                        print(e)
-                
-                # Process any remaining output
-                print("closing stdout")
-                if stdout:
-                    try:
-                        remaining_output = stdout.read()
-                        if remaining_output:
-                            print(f"[STDOUT]: {remaining_output}")
-                            # print(f"[STDOUT]: {remaining_output}", file=logfile_handler)
-                            # logfile_handler.flush()
-                    except Exception as e:
-                        print("err out",e)
-                
-                print("closing stderr")
-                if stderr:
-                    try:
-                        remaining_errors = stderr.read()
-                        if remaining_errors:
-                            print(f"[STDERR]: {remaining_errors}")
-                            # print(f"[STDERR]: {remaining_errors}", file=logfile_handler)
-                            # logfile_handler.flush()
-                    except Exception as e:
-                        print("err", e)
-                
-                try:
-                    stdin.channel.close()
-                except Exception as e:
-                    print(e)
-                finally:
-                    print(stdin.channel.closed)
-                    
-        except FileNotFoundError as e:
-            print(f"Script not found: {e}")
-        except Exception as e:
-            print(f"SSH connection error: {e}")
-        finally:
-            thread_running.clear()
-            print("SSH connection closed")
-    
-    # Start the SSH connection in background thread
-    ssh_thread = Thread(target=ssh_runner)
-    ssh_thread.start()
-    
-    # Wait for connection to be established
-    if not thread_running.wait(timeout=30):
-        print("Timeout waiting for SSH connection")
-        stop_requested.set()
-        return lambda: None
-    
-    print("SSH connection established")
-    # print("SSH connection established", file=logfile_handler)
-    # logfile_handler.flush()
-    class Stopper:
-        def  __call__(self, *args: Any, **kwds: Any) -> Any:
-            """Stop the remote process and close SSH connection"""
-            if not stop_requested.is_set():
-                print("Requesting stop...")
-                stop_requested.set()
-                ssh_thread.join(timeout=60)
-                print("Remote process stopped")
-        
-        def __repr__(self) -> str:
-            return "None"
-        
-        def __str__(self) -> str:
-            return "None"
-
-    stop = Stopper()
-    
-    return stop
