@@ -378,7 +378,9 @@ class NetworkRunner(Runner):
                         f_name = f".rpyc_temp{int(10000 * random.random())}.py"
                     script = inspect.getsource(cl)
                     self.machine[f"echo '{script}' > {f_name}"]()
-                    self.machine[f"uv run {f_name} -p 18812 -m oneshot"]()
+                    
+                    major, minor, patch = platform.python_version_tuple()
+                    self.machine[f"uv run --python {major}.{minor}.{patch} --script {f_name} -p 18812 -m oneshot"]()
                 
                 self.thread = Thread(target=start_rpyc_server)
                 self.thread.start()

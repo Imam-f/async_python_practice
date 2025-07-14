@@ -50,21 +50,11 @@ def main():
     
     # print("connecting")
     # print(HOSTNAME, USER, PORT, PASSWORD)
-    with ParamikoMachine(host=HOSTNAME,
+    sshmachine = ParamikoMachine(host=HOSTNAME,
                                  user=USER, 
                                  port=PORT, 
                                  password=PASSWORD,
-                        missing_host_policy=paramiko.AutoAddPolicy()) as sshmachine:
-        print("asdfasd")
-    return
-    # sshmachine = ParamikoMachine(host=HOSTNAME, 
-    #                              user=USER, 
-    #                              port=PORT, 
-    #                              password=PASSWORD,
-    #                              missing_host_policy=paramiko.AutoAddPolicy(), 
-    #                              connect_timeout=20)
-    # 
-    # print("connected")
+                                 missing_host_policy=paramiko.AutoAddPolicy())
     
     if False:
         with Recursive_RPC(client=[
@@ -130,8 +120,8 @@ def main():
                     #     localprocess(4),
                     #     networkprocess(2, HOSTNAME, remote_port[2], "tag1")
                     # ], ssh_login, {"tag1": (HOSTNAME, USER, PORT, PASSWORD, remote_port[2])}),
-                    localprocess(2),
-                    # networkprocess(2, sshmachine),
+                    # localprocess(2),
+                    networkprocess(2, sshmachine),
                     # networkprocess(2, HOSTNAME, remote_port[3], stop2)
                 ], conn={}) as pool:
             
