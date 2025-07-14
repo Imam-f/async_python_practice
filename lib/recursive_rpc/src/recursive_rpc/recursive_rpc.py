@@ -628,28 +628,12 @@ def start_rpyc_server(port: int = 18812, f_name: str = "rpyc_classic.py"):
 class Pool:
     def __init__(self, max_workers: int, offset: int = 0):
         import multiprocessing
-        import recursive_rpc.rpyc_classic as cl
-        self.pool = ProcessPoolExecutor(max_workers=max_workers)
-        
-        # connect to rpyc server
         self.max_workers = max_workers if max_workers > 0 else multiprocessing.cpu_count()
         self.scheduler = []
         
-        try:
-            f_name = f".rpyc_temp{int(10000 * random.random())}.py"
-            if os.path.exists(f_name):
-                f_name = f".rpyc_temp{int(10000 * random.random())}.py"
-                
-            f = open(f_name, "w")
-            f.write(inspect.getsource(cl))
-            f.close()
-        
-            for i in range(max_workers):
-                self.pool.submit(start_rpyc_server, 18812 + offset + i, f_name)
-                conn = rpyc.classic.connect("localhost", port=18812 + offset + i)
-                self.scheduler.append(conn)
-        finally:
-            os.remove(f_name)
+        for _ in range(max_workers):
+            conn = rpyc.classic.connect_multiprocess()
+            self.scheduler.append(conn)
 
         # assign to scheduler
         self.scheduler_index = 0
@@ -662,26 +646,23 @@ class Pool:
         self.close()
     
     def _schedule(self):
-        # print(self.scheduler_status, self.scheduler_index)
         index = self.scheduler_index
+        index_found = False
         for i in range(len(self.scheduler_status)):
             if not self.scheduler_status[(index + i) % len(self.scheduler_status)]:
                 index = (index + i) % len(self.scheduler_status)
-                for s in range(len(self.scheduler_status)):
-                    self.scheduler_status[s] = False
                 self.scheduler_status[index] = True
-                # print(self.scheduler_status, self.scheduler_index)
+                index_found = True
                 break
             else:
                 index = (index + i) % len(self.scheduler_status)
-                # print(self.scheduler_status, self.scheduler_index)
+        if not index_found:
+            index = (index + 1) % len(self.scheduler_status)
         self.scheduler_index = index
-        # print(index, "===========", len(self.scheduler), self.scheduler_status)
         return self.scheduler[index]
     
     def apply_async(self, func, args, kwargs):
         runner = self._schedule()
-        # try:
         function = runner.teleport(func)
         
         result_future = Future()
@@ -689,6 +670,7 @@ class Pool:
             nonlocal result_future
             result = function(*args, **kwargs)
             result_future.set_result(result)
+            self.scheduler_status[self.scheduler_index] = False
         
         thread = Thread(target=function_async, args=args, kwargs=kwargs)
         thread.start()
@@ -697,7 +679,6 @@ class Pool:
     def close(self):
         for i in self.scheduler:
             i.close()
-        self.pool.shutdown()
     
     def __del__(self):
         self.close()

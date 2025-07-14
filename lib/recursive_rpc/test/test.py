@@ -120,11 +120,11 @@ def main():
                     #     localprocess(4),
                     #     networkprocess(2, HOSTNAME, remote_port[2], "tag1")
                     # ], ssh_login, {"tag1": (HOSTNAME, USER, PORT, PASSWORD, remote_port[2])}),
-                    # localprocess(2),
-                    networkprocess(2, sshmachine),
+                    localprocess(2),
+                    # networkprocess(2, sshmachine),
                     # networkprocess(2, HOSTNAME, remote_port[3], stop2)
                 ], conn={}) as pool:
-            
+            print("Hello", os.getpid())
             queue = Queue()
             # queue_put = lambda x: queue.put(x)
             # queue_get = lambda: queue.get()
