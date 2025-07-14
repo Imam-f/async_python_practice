@@ -9,13 +9,13 @@ from dataclasses import dataclass
 from concurrent.futures import Future, ProcessPoolExecutor
 from threading import Thread
 
-import tempfile
 import inspect
-import recursive_rpc.rpyc_classic as cl
 import rpyc
+from rpyc.utils.zerodeploy import DeployedServer
+from plumbum import SshMachine, TF
+from plumbum.machines.paramiko_machine import ParamikoMachine
 
 old_print = print
-
 # import paramiko
 # from scp import SCPClient
 
@@ -36,9 +36,7 @@ class localprocess(tupleprocess):
 @dataclass
 class networkprocess(tupleprocess):
     number: int
-    host: str
-    port: int
-    ssh_conn: Callable | str 
+    connection: SshMachine | ParamikoMachine | tuple[str, int]
 
 @dataclass
 class proxyprocess(tupleprocess):
@@ -183,19 +181,8 @@ class Recursive_RPC:
             match val:
                 case localprocess(i):
                     runner = ProcessRunner(i)
-                case networkprocess(i, j, k, l):
-                    if callable(l):
-                        runner = NetworkRunner(i, j, k, l)
-                    elif isinstance(l, str):
-                        HOSTNAME, USER, PORT, PASSWORD, remote_port = conn[l]
-                        stop = activate_ssh(HOSTNAME, 
-                            USER, 
-                            PORT, 
-                            PASSWORD, 
-                            remote_port)
-                        runner = NetworkRunner(i, j, k, stop)
-                    else:
-                        runner = NetworkRunner(i, j, k, None)
+                case networkprocess(i, j):
+                    runner = NetworkRunner(i, j)
                 case proxyprocess(i, j, k, l, m, n):
                     runner = ProxyRunner(i, j, k, l, m, n)
                 case _:
@@ -345,14 +332,13 @@ class Runner:
         pass
 
 class ProcessRunner(Runner):
-    pool: "Pool"
-    
     def __init__(self, num: int):
-        self.pool = Pool(num)
+        self.pool: "Pool" = Pool(num)
         self.process_num = self.pool.max_workers
         self.process_handle: list[RPC_Future] = []
 
     def run(self, func, /, *args, **kwargs) -> RPC_Future:
+        # print("============", func.__name__)
         result = self.pool.apply_async(func, args, kwargs)
         self.process_handle.append(RPC_Future(result, self))
         return self.process_handle[-1]
@@ -373,58 +359,65 @@ class ProcessRunner(Runner):
         return (is_pool_active, process_num, not_done_count, 0)
 
 class NetworkRunner(Runner):
-    def __init__(self, num: int, host: int | str, port: int, ssh_con: Callable | None = None):
-        import multiprocessing
-        # start server
-        self.host = host
-        self.port = port
-        self.process_num = num if num >= 0 else multiprocessing.cpu_count()
-        self.ssh_con = ssh_con
-        # self.process_num = 1
-        try:
-            if ssh_con is not None:
-                raise ValueError
-            self.conn = rpyc.classic.connect(host, port=port)
-        except:
-            # self.ssh_con = activate_ssh(host, ssh_port, port)
-            self.conn = rpyc.classic.connect(host, port=port)
-        self.conn.execute("import time")
-        self.conn.execute("import inspect")
-        self.conn.execute("import random")
-        self.conn.execute("import dill")
-        self.conn.execute("from multiprocess import Pool as Pl")
-        self.conn.execute("dill.settings['recurse'] = True")
-        self.conn.execute(f"async_pool = Pl({self.process_num})")
+    def __init__(self, num: int, con: SshMachine | tuple[str, int]):
+        import recursive_rpc.rpyc_classic as cl
+        self.process_num = num
+        
+        self.server = None
+        match con:
+            case SshMachine():
+                self.machine: SshMachine = con
+                print("connected")
+                if self.machine['uv --version']() & TF(1):
+                    raise RuntimeError("uv not installed")
+                
+                def start_rpyc_server():
+                    f_name = f".rpyc_temp{int(10000 * random.random())}.py"
+                    while self.machine[f'cat {f_name}']() & TF(1):
+                        print("File exists")
+                        f_name = f".rpyc_temp{int(10000 * random.random())}.py"
+                    script = inspect.getsource(cl)
+                    self.machine[f"echo '{script}' > {f_name}"]()
+                    self.machine[f"uv run {f_name} -p 18812 -m oneshot"]()
+                
+                self.thread = Thread(target=start_rpyc_server)
+                self.thread.start()
+                self.conn = rpyc.classic.connect("localhost", port=18812)
+            case (hostname, port):
+                self.conn = rpyc.classic.connect(hostname, port=port)
+            case _:
+                raise RuntimeError("Invalid connection")
+        
+        # check dependency
+        # run pool on remote instance
+        self.conn.execute("from recursive_rpc import *")
+        self.conn.execute(f"pool = ProcessRunner({self.process_num})")
+        
+        # self.conn.execute("from multiprocess import Pool as Pl")
+        # self.conn.execute(f"pool = Pl({self.process_num})")
 
         self.process_handle: list[RPC_Future] = []
-        # stop = activate_ssh(os.getenv("HOSTNAME"), os.getenv("USER"), os.getenv("PORT"), os.getenv("PASSWORD"))
-        
+
     def run(self, func, /, *args, **kwargs) -> RPC_Future:
         # teleport function
         self.conn.teleport(func)
         self.conn.namespace["args"] = args
         self.conn.namespace["kwargs"] = kwargs
-        # print("=>>>> Not error here")
-        # print(self.conn.namespace["kwargs"])
-        
-        self.conn.execute("result = async_pool.apply_async(worker_func, args, kwargs)")
-        # print("=>>>> +++++ Not error here")
-        
-        result = self.conn.namespace["result"]
+    
+        result = self.conn.eval(f"pool.apply_async({func.__name__}, args, kwargs)")
         self.process_handle.append(RPC_Future(result, self))
         return self.process_handle[-1]
 
     def close(self):
-        self.conn.execute("async_pool.close()")
+        self.conn.execute("pool.close()")
         try:
             self.conn.close()
         except Exception as e:
             print("close", e)
-        self.conn = None
-        if self.ssh_con is not None:
-            self.ssh_con()
+        if self.machine is not None:
+            self.machine.close()
 
-    def status(self) -> tuple[bool, int, int]:
+    def status(self) -> tuple[bool, int, int, int]:
         for i,v in enumerate(self.process_handle):
             if self.process_handle[i].status():
                 self.process_handle.remove(v)
@@ -631,12 +624,13 @@ def start_rpyc_server(port: int = 18812, f_name: str = "rpyc_classic.py"):
     run_uv(["run", f_name, "-p", str(port), "-m", "oneshot"])
 
 class Pool:
-    def __init__(self, max_workers: int):
-        # start rpyc server using multiprocessing
+    def __init__(self, max_workers: int, offset: int = 0):
+        import multiprocessing
+        import recursive_rpc.rpyc_classic as cl
         self.pool = ProcessPoolExecutor(max_workers=max_workers)
         
         # connect to rpyc server
-        self.max_workers = self.pool._max_workers
+        self.max_workers = max_workers if max_workers > 0 else multiprocessing.cpu_count()
         self.scheduler = []
         
         try:
@@ -645,14 +639,12 @@ class Pool:
                 f_name = f".rpyc_temp{int(10000 * random.random())}.py"
                 
             f = open(f_name, "w")
-            print(f_name)
-            print(inspect.getsource(cl))
-            print(f.write(inspect.getsource(cl)))
+            f.write(inspect.getsource(cl))
             f.close()
         
             for i in range(max_workers):
-                self.pool.submit(start_rpyc_server, 18812 + i, f_name)
-                conn = rpyc.classic.connect("localhost", port=18812 + i)
+                self.pool.submit(start_rpyc_server, 18812 + offset + i, f_name)
+                conn = rpyc.classic.connect("localhost", port=18812 + offset + i)
                 self.scheduler.append(conn)
         finally:
             os.remove(f_name)

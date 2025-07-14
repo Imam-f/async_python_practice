@@ -3,29 +3,37 @@ import time
 import os
 from dotenv import load_dotenv
 load_dotenv()
+load_dotenv()
 import traceback
 
 from queue import Queue
+import paramiko
+from plumbum.machines.paramiko_machine import ParamikoMachine
+from plumbum import PuttyMachine
+from plumbum.machines.ssh_machine import SshMachine
 
 #################################################################
 
 def worker_func(number):
-    # time.sleep(random.random() * 2)  # Simulate a time-consuming task
     sum_num = 0
     for i in range(30000000):
     # for i in range(300000):
         sum_num += i
-    # print(number, sum)
     return number * number
 
 def main():
     # Create a pool of worker processes
     # The number of processes is set to the number of CPU cores
     
-    HOSTNAME: str = os.getenv("HOSTNAME") if os.getenv("HOSTNAME") else "localhost"
-    USER: str = os.getenv("USER") if os.getenv("USER") else "root"
-    PORT = int(os.getenv("PORT")) if os.getenv("PORT") else 22
-    PASSWORD = os.getenv("PASSWORD") if os.getenv("PASSWORD") else None
+    # HOSTNAME: str = os.getenv("HOSTNAME") if os.getenv("HOSTNAME") else "localhost"
+    # USER: str = os.getenv("USER") if os.getenv("USER") else "root"
+    # PORT = int(os.getenv("PORT")) if os.getenv("PORT") else 22
+    # PASSWORD = os.getenv("PASSWORD") if os.getenv("PASSWORD") else None
+    
+    HOSTNAME: str = 'localhost'
+    USER: str = "IMF-PC\\User"
+    PORT = 2222
+    PASSWORD = "***REMOVED***"
     
     remote_port = [18812, 18813, 18814, 18815]
     # stop = activate_ssh(HOSTNAME,
@@ -41,9 +49,27 @@ def main():
     #                     remote_port[3])
     # stop2()
 
-    HOSTNAME_FORWARD = HOSTNAME
-    PORT_FORWARD = PORT
-    ssh_login = (USER, PASSWORD)
+    # HOSTNAME_FORWARD = HOSTNAME
+    # PORT_FORWARD = PORT
+    # ssh_login = (USER, PASSWORD)
+    
+    # print("connecting")
+    # print(HOSTNAME, USER, PORT, PASSWORD)
+    # with ParamikoMachine(host=HOSTNAME,
+    #                              user=USER, 
+    #                              port=PORT, 
+    #                              password=PASSWORD,
+    #                     missing_host_policy=paramiko.AutoAddPolicy()) as sshmachine:
+    #     print("asdfasd")
+    # 
+    # sshmachine = ParamikoMachine(host=HOSTNAME, 
+    #                              user=USER, 
+    #                              port=PORT, 
+    #                              password=PASSWORD,
+    #                              missing_host_policy=paramiko.AutoAddPolicy(), 
+    #                              connect_timeout=20)
+    # 
+    # print("connected")
     
     if False:
         with Recursive_RPC(client=[
@@ -110,7 +136,7 @@ def main():
                     #     networkprocess(2, HOSTNAME, remote_port[2], "tag1")
                     # ], ssh_login, {"tag1": (HOSTNAME, USER, PORT, PASSWORD, remote_port[2])}),
                     localprocess(2),
-                    # networkprocess(2, HOSTNAME, remote_port[0], stop),
+                    # networkprocess(2, sshmachine),
                     # networkprocess(2, HOSTNAME, remote_port[3], stop2)
                 ], conn={}) as pool:
             
