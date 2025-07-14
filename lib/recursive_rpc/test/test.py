@@ -25,15 +25,10 @@ def main():
     # Create a pool of worker processes
     # The number of processes is set to the number of CPU cores
     
-    # HOSTNAME: str = os.getenv("HOSTNAME") if os.getenv("HOSTNAME") else "localhost"
-    # USER: str = os.getenv("USER") if os.getenv("USER") else "root"
-    # PORT = int(os.getenv("PORT")) if os.getenv("PORT") else 22
-    # PASSWORD = os.getenv("PASSWORD") if os.getenv("PASSWORD") else None
-    
-    HOSTNAME: str = 'localhost'
-    USER: str = "IMF-PC\\User"
-    PORT = 2222
-    PASSWORD = "***REMOVED***"
+    HOSTNAME: str = os.getenv("HOSTNAME") if os.getenv("HOSTNAME") else "localhost"
+    USER: str = os.getenv("USER") if os.getenv("USER") else "root"
+    PORT = int(os.getenv("PORT")) if os.getenv("PORT") else 22
+    PASSWORD = os.getenv("PASSWORD") if os.getenv("PASSWORD") else None
     
     remote_port = [18812, 18813, 18814, 18815]
     # stop = activate_ssh(HOSTNAME,
@@ -55,13 +50,13 @@ def main():
     
     # print("connecting")
     # print(HOSTNAME, USER, PORT, PASSWORD)
-    # with ParamikoMachine(host=HOSTNAME,
-    #                              user=USER, 
-    #                              port=PORT, 
-    #                              password=PASSWORD,
-    #                     missing_host_policy=paramiko.AutoAddPolicy()) as sshmachine:
-    #     print("asdfasd")
-    # 
+    with ParamikoMachine(host=HOSTNAME,
+                                 user=USER, 
+                                 port=PORT, 
+                                 password=PASSWORD,
+                        missing_host_policy=paramiko.AutoAddPolicy()) as sshmachine:
+        print("asdfasd")
+    return
     # sshmachine = ParamikoMachine(host=HOSTNAME, 
     #                              user=USER, 
     #                              port=PORT, 
