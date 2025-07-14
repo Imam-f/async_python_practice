@@ -4,6 +4,8 @@ import os
 import random
 import platform
 import sys
+import tempfile
+import time
 from dataclasses import dataclass
 
 from concurrent.futures import Future, ProcessPoolExecutor
@@ -359,32 +361,84 @@ class ProcessRunner(Runner):
         return (is_pool_active, process_num, not_done_count, 0)
 
 class NetworkRunner(Runner):
-    def __init__(self, num: int, con: SshMachine | tuple[str, int]):
-        import recursive_rpc.rpyc_classic as cl
+    def __init__(self, num: int, con: SshMachine | ParamikoMachine | tuple[str, int]):
         self.process_num = num
         
         self.server = None
         match con:
-            case SshMachine():
-                self.machine: SshMachine = con
-                print("connected")
-                if self.machine['uv --version']() & TF(1):
+            case SshMachine() | ParamikoMachine():
+                self.machine = con
+                try:
+                    env_cmd = self.machine["/c/Program\\ Files/Git/usr/bin/env"]
+                    print(env_cmd("uv --version".split(" ")))
+                    uv_cmd = self.machine['.local/bin/uv']
+                except:
                     raise RuntimeError("uv not installed")
                 
-                def start_rpyc_server():
-                    f_name = f".rpyc_temp{int(10000 * random.random())}.py"
-                    while self.machine[f'cat {f_name}']() & TF(1):
-                        print("File exists")
-                        f_name = f".rpyc_temp{int(10000 * random.random())}.py"
-                    script = inspect.getsource(cl)
-                    self.machine[f"echo '{script}' > {f_name}"]()
-                    
-                    major, minor, patch = platform.python_version_tuple()
-                    self.machine[f"uv run --python {major}.{minor}.{patch} --script {f_name} -p 18812 -m oneshot"]()
+                from rpyc.utils.zerodeploy import SERVER_SCRIPT
                 
-                self.thread = Thread(target=start_rpyc_server)
-                self.thread.start()
-                self.conn = rpyc.classic.connect("localhost", port=18812)
+                # read requirements txt with uv
+                header = "#!/usr/bin/env uv run --script\n"
+                curdir = os.getcwd()
+                with tempfile.TemporaryDirectory() as temp_dir:
+                    print(temp_dir)
+                    os.chdir(temp_dir)
+                    os.system(f"uv pip freeze > requirements.txt")
+                    os.system(f"touch util.py")
+                    print(os.popen(f"cat requirements.txt").read())
+                    os.system(f"uv add --active -r requirements.txt --script util.py")
+                    with open("util.py", "r") as f:
+                        lines = f.read()
+                        newlines = lines.replace("recursive-rpc = { path = \"../../../../Documents/Dev/experiment/"
+                                      "async_python_practice/lib/recursive_rpc\" }", 
+                                      "recursive-rpc = { path = \"C:/Users/User/Documents/Dev/experiment/"
+                                      "async_python_practice/lib/recursive_rpc\" }")
+                        header += newlines
+                    print(header)
+                    os.chdir(curdir)
+                    # time.sleep(50)
+                # add deps to script with uv
+                # add rpyc to script
+                # add rpyc with uv
+                # send script to remote
+                
+                server_script_user = header + "\n" + SERVER_SCRIPT[1:]
+                extra_setup = ""
+                
+                major = sys.version_info[0]
+                minor = sys.version_info[1]
+                
+                print(server_script_user)
+                os._exit(0)
+                
+                # executable = [f"python{major}.{minor}"]
+                executable = f"uv run --python {major}.{minor} --script"
+                self.server = DeployedServer(self.machine,
+                                             extra_setup=extra_setup,
+                                             python_executable=executable)
+                
+                # check uv
+                # start with uv
+                
+                self.conn = self.server.classic_connect()
+                # print("connected")
+                # if self.machine['uv --version']() & TF(1):
+                #     raise RuntimeError("uv not installed")
+                # 
+                # def start_rpyc_server():
+                #     f_name = f".rpyc_temp{int(10000 * random.random())}.py"
+                #     while self.machine[f'cat {f_name}']() & TF(1):
+                #         print("File exists")
+                #         f_name = f".rpyc_temp{int(10000 * random.random())}.py"
+                #     script = inspect.getsource(cl)
+                #     self.machine[f"echo '{script}' > {f_name}"]()
+                #     
+                #     major, minor, patch = platform.python_version_tuple()
+                #     self.machine[f"uv run --python {major}.{minor}.{patch} --script {f_name} -p 18812 -m oneshot"]()
+                # 
+                # self.thread = Thread(target=start_rpyc_server)
+                # self.thread.start()
+                # self.conn = rpyc.classic.connect("localhost", port=18812)
             case (hostname, port):
                 self.conn = rpyc.classic.connect(hostname, port=port)
             case _:
@@ -412,10 +466,9 @@ class NetworkRunner(Runner):
 
     def close(self):
         self.conn.execute("pool.close()")
-        try:
-            self.conn.close()
-        except Exception as e:
-            print("close", e)
+        self.conn.close()
+        if self.server is not None:
+            self.server.close()
         if self.machine is not None:
             self.machine.close()
 
@@ -622,8 +675,8 @@ class ProxyRunner(Runner):
 
 #################################################################
 
-def start_rpyc_server(port: int = 18812, f_name: str = "rpyc_classic.py"):
-    run_uv(["run", f_name, "-p", str(port), "-m", "oneshot"])
+# def start_rpyc_server(port: int = 18812, f_name: str = "rpyc_classic.py"):
+#     run_uv(["run", f_name, "-p", str(port), "-m", "oneshot"])
 
 class Pool:
     def __init__(self, max_workers: int, offset: int = 0):
@@ -684,45 +737,45 @@ class Pool:
         self.close()
 
 #################################################################
-
-from uv import find_uv_bin
-
-def _detect_virtualenv() -> str:
-    """
-    Find the virtual environment path for the current Python executable.
-    """
-
-    # If it's already set, then just use it
-    value = os.getenv("VIRTUAL_ENV")
-    if value:
-        return value
-
-    # Otherwise, check if we're in a venv
-    venv_marker = os.path.join(sys.prefix, "pyvenv.cfg")
-
-    if os.path.exists(venv_marker):
-        return sys.prefix
-
-    return ""
-
-def run_uv(args) -> None:
-    uv = os.fsdecode(find_uv_bin())
-
-    env = os.environ.copy()
-    venv = _detect_virtualenv()
-    if venv:
-        env.setdefault("VIRTUAL_ENV", venv)
-
-    # Let `uv` know that it was spawned by this Python interpreter
-    env["UV_INTERNAL__PARENT_INTERPRETER"] = sys.executable
-
-    if sys.platform == "win32":
-        import subprocess
-
-        completed_process = subprocess.run([uv, *args], env=env)
-        sys.exit(completed_process.returncode)
-    else:
-        os.execvpe(uv, [uv, *args], env=env)
+# 
+# from uv import find_uv_bin
+# 
+# def _detect_virtualenv() -> str:
+#     """
+#     Find the virtual environment path for the current Python executable.
+#     """
+# 
+#     # If it's already set, then just use it
+#     value = os.getenv("VIRTUAL_ENV")
+#     if value:
+#         return value
+# 
+#     # Otherwise, check if we're in a venv
+#     venv_marker = os.path.join(sys.prefix, "pyvenv.cfg")
+# 
+#     if os.path.exists(venv_marker):
+#         return sys.prefix
+# 
+#     return ""
+# 
+# def run_uv(args) -> None:
+#     uv = os.fsdecode(find_uv_bin())
+# 
+#     env = os.environ.copy()
+#     venv = _detect_virtualenv()
+#     if venv:
+#         env.setdefault("VIRTUAL_ENV", venv)
+# 
+#     # Let `uv` know that it was spawned by this Python interpreter
+#     env["UV_INTERNAL__PARENT_INTERPRETER"] = sys.executable
+# 
+#     if sys.platform == "win32":
+#         import subprocess
+# 
+#         completed_process = subprocess.run([uv, *args], env=env)
+#         sys.exit(completed_process.returncode)
+#     else:
+#         os.execvpe(uv, [uv, *args], env=env)
 
 #################################################################
 
