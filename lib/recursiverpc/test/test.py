@@ -52,13 +52,13 @@ def main():
     
     # print("connecting")
     # print(HOSTNAME, USER, PORT, PASSWORD)
-    sshmachine = ParamikoMachine(host=HOSTNAME,
-                                 user=USER, 
-                                 port=PORT, 
-                                 password=PASSWORD,
-                                 missing_host_policy=paramiko.AutoAddPolicy())
+    # sshmachine = ParamikoMachine(host=HOSTNAME,
+    #                              user=USER, 
+    #                              port=PORT, 
+    #                              password=PASSWORD,
+    #                              missing_host_policy=paramiko.AutoAddPolicy())
     
-    if True:
+    if False:
         with Recursive_RPC(client=[
                     # proxyprocess(remote_port[1], HOSTNAME_FORWARD, PORT_FORWARD, [
                     #     localprocess(4),
@@ -123,6 +123,8 @@ def main():
                                  user=USER, 
                                  port=PORT, 
                                  password=PASSWORD,
+                                 keep_alive=True,
+                                 connect_timeout=5,
                                  missing_host_policy=paramiko.AutoAddPolicy())
     if True:
         with Recursive_RPC(client=[
@@ -131,7 +133,7 @@ def main():
                     #     networkprocess(2, HOSTNAME, remote_port[2], "tag1")
                     # ], ssh_login, {"tag1": (HOSTNAME, USER, PORT, PASSWORD, remote_port[2])}),
                     # localprocess(2),
-                    networkprocess(8, sshmachine),
+                    networkprocess(2, sshmachine),
                     # networkprocess(2, HOSTNAME, remote_port[3], stop2)
                 ], conn={}) as pool:
             print("Hello", os.getpid())
@@ -139,34 +141,53 @@ def main():
             # output_p, input_p = Pipe()
             queue_put = lambda x: queue.put(x)
             queue_get = lambda: queue.get()
+            queue_pool = lambda: not queue.empty()
             # queue_put = lambda x: input_p.send(x)
             # queue_get = lambda: output_p.recv()
+            # queue_pool = lambda: output_p.poll(0.1)
+            # queue_pool = lambda: output_p.poll(0.1)
             # queue_put = queue
             # queue_get = queue
+            import faulthandler
+            faulthandler.enable()
+            faulthandler.dump_traceback_later(timeout=10)
             value1 = pool.apply_async(value_producer, queue_put, print)
-            stat1 = value1.status()
+            # value1 = pool.apply_async(value_producer, queue_put, None)
+            # stat1 = value1.status()
             # time.sleep(10)
-            value2 = pool.apply_async(value_consumer, queue_get, print)
-            stat2 = value2.status()
+            value2 = pool.apply_async(value_consumer, (queue_get, queue_pool), print)
+            # value2 = pool.apply_async(value_consumer, queue_get, None)
+            # stat2 = value2.status()
             
-            while True:
-                print("------------------")
-                stat1 = value1.status()
-                stat2 = value2.status()
-                print("s", stat1, stat2)
-                print("=========")
-                time.sleep(0.1)
-                if stat1 and stat2:
-                    print("break out")
-                    break
-            # for async_result in RPC_Future.as_completed([value1, value2]):
-            #     print(async_result)
+            import threading
+            print("how many count", threading.active_count())
+            # while True:
+            #     time.sleep(5)
+            # while True:
+            #     stat1 = value1.status()
+            #     stat2 = value2.status()
+            #     print("s", stat1, stat2)
+            #     time.sleep(0.1)
+            #     if stat1 and stat2:
+            #         print("break out")
+            #         break
+            for async_result in RPC_Future.as_completed([value1, value2]):
+                print(async_result)
 
 def value_producer(queue, print):
-    # import time
+    if callable(print):
+        print = print
+    else:
+        print = __builtins__["print"]
+    import time
     import os
+    import faulthandler
+    faulthandler.enable()
+    faulthandler.dump_traceback_later(timeout=10)
     print("Hello there", os.getpid())
     for i in range(10):
+        import threading
+        print("how many count", threading.active_count())
         print("Hello", i)
         if callable(queue):
             print("putting 2")
@@ -176,21 +197,35 @@ def value_producer(queue, print):
             print("putting 1")
             queue.put(i)
             print("putting 1--")
-        # time.sleep(0.1)
-        print(i)
+        time.sleep(0.1)
     if callable(queue):
         queue(None)
     else:
         queue.put(None)
 
 def value_consumer(queue, print):
+    queue, pooler = queue
+    if callable(print):
+        print = print
+    else:
+        print = __builtins__["print"]
+    import time
     import os
+    import faulthandler
+    faulthandler.enable()
+    faulthandler.dump_traceback_later(timeout=15)
     print("Inigo Montoya", os.getpid())
     item = 0
+    import threading
+    print("how many count", threading.active_count())
     while True:
         if callable(queue):
             print("getting 1")
-            item = queue()
+            # if pooler():
+            if True:
+                item = queue()
+            else:
+                print("EMPTY")
             print("getting 1--")
         else:
             print("getting 2")
@@ -200,6 +235,7 @@ def value_consumer(queue, print):
             print("Done")
             return 5
         print(item + 7)
+        # time.sleep(0.1)
 
 ################################################################
 

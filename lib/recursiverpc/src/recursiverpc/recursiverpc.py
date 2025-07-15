@@ -8,11 +8,11 @@ import tempfile
 import time
 from dataclasses import dataclass
 
-from concurrent.futures import Future, ProcessPoolExecutor
+from concurrent.futures import Future
 from threading import Thread, Event
 
-import inspect
 import rpyc
+from rpyc import BgServingThread
 from rpyc.utils.zerodeploy import DeployedServer, SERVER_SCRIPT
 
 from plumbum import SshMachine
@@ -31,13 +31,15 @@ old_print = print
 ##################################################################
 
 SERVER_SCRIPT = r"""\
+import logging
+
 if __name__ == "__main__":
     import sys
     import os
     import atexit
     import shutil
     import time
-
+    
     here = os.path.dirname(__file__)
     os.chdir(here)
 
@@ -58,6 +60,13 @@ if __name__ == "__main__":
     from $SERVICE_MODULE$ import $SERVICE_CLASS$ as ServiceCls
 
     logger = None
+
+    logging.basicConfig(
+        level=logging.INFO,  
+        filename="app.log",
+        filemode="a"
+    )
+    logger = logging.getLogger(__name__)
     $EXTRA_SETUP$
 
     t = ServerCls(ServiceCls, hostname = "localhost", port = 0, reuse_addr = True, logger = logger)
@@ -67,25 +76,30 @@ if __name__ == "__main__":
     # sys.stdout.flush()
     sys.stdout.write(f"{t.port}\n")
     sys.stdout.flush()
-
+    
+    # old_stdout = sys.stdout
+    # sys.stdout = open("log.txt", "w")
+    # sys.stdout.flush()
+        
     try:
         read_data = sys.stdin.read()
         while read_data == "":
             read_data = sys.stdin.read()
-            time.sleep(60)
+            time.sleep(10)
     except Exception as e:
         sys.stdout.write(f"exception\n")
         sys.stdout.flush()
     finally:
         t.close()
         thd.join(2)
+        # sys.stdout = old_stdout
         stdin_read = sys.stdin.read()
         sys.stdout.write(stdin_read)
         sys.stdout.flush()
-        while stdin_read != "":
-            stdin_read = sys.stdin.read()
-            sys.stdout.write(stdin_read)
-            sys.stdout.flush()
+        # while stdin_read != "":
+        #     stdin_read = sys.stdin.read()
+        #     sys.stdout.write(stdin_read)
+        #     sys.stdout.flush()
         if sys.stdin.isatty():
             sys.stdout.write(f"closing3\n")
             sys.stdout.flush()
@@ -373,6 +387,7 @@ class RPC_Future(Generic[T]):
         return self.result.result()
 
     def status(self):
+        # self.scheduler.conn.ping()
         return self.result.done()
 
     @staticmethod
@@ -380,9 +395,8 @@ class RPC_Future(Generic[T]):
         cls = cls_act.copy()
         while any(cls):
             for i, v in enumerate(cls):
-                print(i)
+                print("here")
                 if v and v.status():
-                    # print("found one")
                     yield v.get()
                     cls.remove(v)
 
@@ -474,11 +488,13 @@ class NetworkRunner(Runner):
                 major = sys.version_info[0]
                 minor = sys.version_info[1]
                 
-                executable = f"uv run --python {major}.{minor} --script"
+                # executable = f"uv run --python {major}.{minor} --script"
+                # executable = env_cmd["uv", "run", "--python", f"{major}.{minor}", "--script"]
                 executable = env_cmd["uv", "run", "-q", "--python", f"{major}.{minor}", "--script"]
                 self.server = DeployedWindowsServer(self.machine,
                                              server_script=server_script_user,
                                              extra_setup=extra_setup,
+                                             server_class="rpyc.utils.server.OneShotServer",
                                              python_executable=executable)
                 
                 self.conn = self.server.classic_connect()
@@ -487,40 +503,34 @@ class NetworkRunner(Runner):
             case _:
                 raise RuntimeError("Invalid connection")
         
+        self.bg_event_loop = BgServingThread(self.conn)
         # check dependency
         # run pool on remote instance
+        # self.conn.modules.sys.stdout = sys.stdout
         self.conn.execute("import os")
-        self.conn.builtins.print = print
-        self.conn.execute("def printer(x, *args): print(os.getpid(), x, *args)")
-        printer = self.conn.namespace["printer"]
-        printer(print, "printer")
+        # self.conn.builtins.print = print
+        # self.conn.execute("def printer(x, *args): print(os.getpid(), x, *args)")
+        # printer = self.conn.namespace["printer"]
+        # printer(print, "printer")
         self.conn.execute("from recursiverpc import *")
-        print(self.conn.eval("globals().keys()"))
         
-        # time.sleep(1)
-        
-        self.conn.builtins.print = print
-        # self.conn.execute(f"os._exit(0)")
-        # self.conn.execute(f"pool = ProcessRunner({self.process_num})")
-        # self.conn.execute(f"pool = ProcessRunner(7, printer=printer)")
-        self.conn.execute(f"pool = Pool({self.process_num}, printer=printer)")
+        self.conn.execute(f"pool = Pool({self.process_num})")
         
         self.process_handle: list[RPC_Future] = []
 
     def run(self, func, /, *args, **kwargs) -> RPC_Future:
         # teleport function
+        self.conn.ping()
         self.conn.teleport(func)
         self.conn.namespace["args"] = args
         self.conn.namespace["kwargs"] = kwargs
-        # print("=>>", self.conn.eval("globals().keys()"))
-        # print(self.conn.eval())
-
         self.conn.execute(f"result = pool.apply_async({func.__name__}, args, kwargs)")
         # result = self.conn.eval(f"pool.run({func.__name__}, args, kwargs)")
         result = self.conn.namespace["result"]
         # self.process_handle.append(result)
         self.process_handle.append(RPC_Future(result, self))
-        print("=>>", self.conn.eval("result.done()"))
+        self.conn.eval("result.done()")
+        # print("=>>", self.conn.eval("result.done()"))
         return self.process_handle[-1]
 
     def close(self):
@@ -529,13 +539,21 @@ class NetworkRunner(Runner):
         except:
             pass
         try:
+            self.bg_event_loop.stop()
             self.conn.close()
+            print("1 Cleaned up")
         except:
             pass
-        if self.server is not None:
-            self.server.close()
-        if self.machine is not None:
-            self.machine.close()
+        try:
+            if self.server is not None:
+                self.server.close()
+        except Exception as e:
+            print(e)
+        try:
+            if self.machine is not None:
+                self.machine.close()
+        except Exception as e:
+            print(e)
     
     def __del__(self):
         self.close()
@@ -744,37 +762,21 @@ class ProxyRunner(Runner):
 #################################################################
 
 class Pool:
-    def __init__(self, max_workers: int, offset: int = 0, printer=print):
-        printer("offset", offset)
-        printer("max workers", max_workers)
-        print("max workers", max_workers)
-        
+    def __init__(self, max_workers: int, offset: int = 0):
         import multiprocessing
         self.max_workers = max_workers if max_workers > 0 else multiprocessing.cpu_count()
         self.scheduler = []
         
-        print("max workers", self.max_workers)
-        
-        # time.sleep(5)
+        print("Pooling")
         for _ in range(max_workers):
-            printer("asdfasdfasdf")
-            print("thread")
-            conn = rpyc.classic.connect_thread()
-            
-            # process = multiprocessing.Process(target=do_nothing)
-            # process.start()
-            # conn = rpyc.classic.connect_multiprocess()
-            printer("asdfasdfasdf2222222")
-            # conn = None
+            # conn = rpyc.classic.connect_thread()
+            conn = rpyc.classic.connect_multiprocess()
+            conn.modules.sys.stdout = sys.stdout
+            conn.modules.sys.stderr = sys.stderr
             self.scheduler.append(conn)
 
-        # print("max index before", self.scheduler_index)
-        # printer("max index before", self.scheduler_index)
-        # assign to scheduler
         self.scheduler_index = 0
         self.scheduler_status: list[bool] = [False] * self.max_workers
-        print("max index 1", self.scheduler_index)
-        printer("max index 2", self.scheduler_index)
     
     def __enter__(self):
         return self
@@ -795,28 +797,27 @@ class Pool:
                 index = (index + i) % len(self.scheduler_status)
         if not index_found:
             index = (index + 1) % len(self.scheduler_status)
+            print("ALL BUSY")
         self.scheduler_index = index
         return self.scheduler[index]
     
     def apply_async(self, func, args, kwargs):
-        print("submitting")
         runner = self._schedule()
         function = runner.teleport(func)
-        print("teleported")
         
         result_future = Future()
         def function_async(*args, **kwargs):
-            print("called")
             nonlocal result_future
             result = function(*args, **kwargs)
             result_future.set_running_or_notify_cancel()
             result_future.set_result(result)
             self.scheduler_status[self.scheduler_index] = False
-            print("done")
         
         thread = Thread(target=function_async, args=args, kwargs=kwargs)
         thread.start()
-        print("thread started")
+        
+        import threading
+        print("how many count", threading.active_count())
         
         return result_future
 
@@ -837,7 +838,6 @@ class DeployedWindowsServer(DeployedServer):
                 server_script=SERVER_SCRIPT,
                 extra_setup="",
                 python_executable=None) -> None:
-        # super().__init__()
         self.proc = None
         self.tun = None
         self.remote_machine = remote_machine
@@ -864,9 +864,6 @@ class DeployedWindowsServer(DeployedServer):
         tmp = self._tmpdir_ctx.__enter__()
         print(tmp)
         
-        # self._tmpdir_ctx.__exit__(None, None, None)
-        # os._exit(0)
-        
         server_modname, server_clsname = server_class.rsplit(".", 1)
         service_modname, service_clsname = service_class.rsplit(".", 1)
 
@@ -884,9 +881,9 @@ class DeployedWindowsServer(DeployedServer):
         for line in server_script.split("\n"):
             s.run(f"echo '{line}' >> server.py")
         script = s.run(f"pwd")[1].strip() + "/server.py"
-        print(s.run(f"pwd"))
-        print(s.run(f"ls server.py"))
-        print(script)
+        # print(s.run(f"pwd"))
+        # print(s.run(f"ls server.py"))
+        # print(script)
         del s
         
         if isinstance(python_executable, BoundCommand):
@@ -912,20 +909,18 @@ class DeployedWindowsServer(DeployedServer):
         line = ""
         save_forward = Event()
         try:
-            print("reading remote port")
-            # line = self.proc.stdout.readline()
-            # print("line", line)
             line = self.proc.stdout.readline()
             self.remote_port = int(line.strip())
             save_forward.set()
             
-            print(line)
             def thread_printer():
                 # save_forward.wait()
                 while True:
                     try:
                         line = self.proc.stdout.read()
                         # print(">", line.decode("utf-8"), line, "<", sep="", end="")
+                        print(">", line, "<", sep="", end="")
+                        line = self.proc.stderr.read()
                         print(">", line, "<", sep="", end="")
                         if not line:
                             break
@@ -939,11 +934,10 @@ class DeployedWindowsServer(DeployedServer):
                 self.proc.terminate()
             except Exception:
                 pass
-            stdout, stderr = self.proc.communicate()
+            stdout, stderr = self.proc.communicate("exit\n".encode("utf-8"))
             from rpyc.lib.compat import BYTES_LITERAL
             raise ProcessExecutionError(self.proc.argv, self.proc.returncode, BYTES_LITERAL(line) + stdout, stderr)
 
-        print("connecting")
         if hasattr(remote_machine, "connect_sock"):
             # Paramiko: use connect_sock() instead of tunnels
             self.local_port = None
