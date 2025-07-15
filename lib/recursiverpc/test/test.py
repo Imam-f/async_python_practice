@@ -13,9 +13,9 @@ from plumbum.machines.paramiko_machine import ParamikoMachine
 
 def worker_func(number):
     sum_num = 0
-    # for i in range(30000000):
+    for i in range(30000000):
     # for i in range(300000):
-    for i in range(3000000):
+    # for i in range(3000000):
         sum_num += i
     return number * number
 
@@ -34,20 +34,20 @@ def main():
     
     # print("connecting")
     # print(HOSTNAME, USER, PORT, PASSWORD)
-    # sshmachine = ParamikoMachine(host=HOSTNAME,
-    #                              user=USER, 
-    #                              port=PORT, 
-    #                              password=PASSWORD,
-    #                              missing_host_policy=paramiko.AutoAddPolicy())
+    sshmachine = ParamikoMachine(host=HOSTNAME,
+                                 user=USER, 
+                                 port=PORT, 
+                                 password=PASSWORD,
+                                 missing_host_policy=paramiko.AutoAddPolicy())
     
-    if False:
+    if True:
         with Recursive_RPC(client=[
                     # proxyprocess(remote_port[1], HOSTNAME_FORWARD, PORT_FORWARD, [
                     #     localprocess(4),
                     #     networkprocess(2, HOSTNAME, remote_port[2], "tag1")
                     # ], ssh_login, {"tag1": (HOSTNAME, USER, PORT, PASSWORD, remote_port[2])}),
-                    # localprocess(8),
-                    networkprocess(8, sshmachine),
+                    localprocess(4),
+                    networkprocess(4, sshmachine),
                     # networkprocess(2, HOSTNAME, remote_port[0], stop),
                     # networkprocess(2, HOSTNAME, remote_port[3], stop2)
                 ], conn={}) as pool:
@@ -114,7 +114,7 @@ def main():
                     #     localprocess(4),
                     #     networkprocess(2, HOSTNAME, remote_port[2], "tag1")
                     # ], ssh_login, {"tag1": (HOSTNAME, USER, PORT, PASSWORD, remote_port[2])}),
-                    # localprocess(2),
+                    localprocess(2),
                     networkprocess(2, sshmachine),
                     # networkprocess(2, HOSTNAME, remote_port[3], stop2)
                 ], conn={}) as pool:
@@ -148,7 +148,7 @@ def value_producer(queue, print):
             queue(i)
         else:
             queue.put(i)
-        time.sleep(0.1)
+        time.sleep(0.4)
     if callable(queue):
         queue(None)
     else:
@@ -177,7 +177,7 @@ def value_consumer(queue, print):
             print("Done")
             return 5
         print(item + 7)
-        time.sleep(0.1)
+        time.sleep(0.2)
 
 ################################################################
 

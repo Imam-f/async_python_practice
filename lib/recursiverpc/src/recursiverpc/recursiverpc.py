@@ -27,6 +27,13 @@ old_print = print
 SERVER_SCRIPT = r"""\
 import logging
 
+# logging.basicConfig(
+#     level=logging.INFO,  
+#     filename="app.log",
+#     filemode="a"
+# )
+# logger = logging.getLogger(__name__)
+    
 if __name__ == "__main__":
     import sys
     import os
@@ -55,53 +62,17 @@ if __name__ == "__main__":
 
     logger = None
 
-    logging.basicConfig(
-        level=logging.INFO,  
-        filename="app.log",
-        filemode="a"
-    )
-    logger = logging.getLogger(__name__)
     $EXTRA_SETUP$
 
     t = ServerCls(ServiceCls, hostname = "localhost", port = 0, reuse_addr = True, logger = logger)
     thd = t._start_in_thread()
 
-    # sys.stdout.write(f"second_time\n")
-    # sys.stdout.flush()
     sys.stdout.write(f"{t.port}\n")
     sys.stdout.flush()
-    
-    # old_stdout = sys.stdout
-    # sys.stdout = open("log.txt", "w")
-    # sys.stdout.flush()
-        
     try:
         read_data = sys.stdin.read()
-        while read_data == "":
-            read_data = sys.stdin.read()
-            time.sleep(10)
-    except Exception as e:
-        sys.stdout.write(f"exception\n")
-        sys.stdout.flush()
     finally:
-        t.close()
         thd.join(2)
-        # sys.stdout = old_stdout
-        stdin_read = sys.stdin.read()
-        sys.stdout.write(stdin_read)
-        sys.stdout.flush()
-        # while stdin_read != "":
-        #     stdin_read = sys.stdin.read()
-        #     sys.stdout.write(stdin_read)
-        #     sys.stdout.flush()
-        if sys.stdin.isatty():
-            sys.stdout.write(f"closing3\n")
-            sys.stdout.flush()
-        if sys.stdin.closed:
-            sys.stdout.write(f"closing2\n")
-            sys.stdout.flush()
-        sys.stdout.write(f"closing\n")
-        sys.stdout.flush()
 """
 
 @dataclass
@@ -341,9 +312,11 @@ class NetworkRunner(Runner):
                 curdir = os.getcwd()
                 with tempfile.TemporaryDirectory() as temp_dir:
                     os.chdir(temp_dir)
-                    os.system(f"uv pip freeze > requirements.txt")
+                    # os.system(f"uv pip freeze")
+                    os.system(f"uv pip freeze > requirements.txt 2> log.txt")
                     os.system(f"touch util.py")
-                    os.system(f"uv add --active -r requirements.txt --script util.py")
+                    # os.system(f"uv add -q --active -r requirements.txt --script util.py")
+                    os.system(f"uv add -q --active -r requirements.txt --script util.py")
                     with open("util.py", "r") as f:
                         lines = f.read()
                         newlines = lines.replace("recursiverpc = { path = \"../../../../Documents/Dev/experiment/"
@@ -352,7 +325,6 @@ class NetworkRunner(Runner):
                                       "async_python_practice/lib/recursiverpc\", editable = true }")
                         header += newlines
                     os.chdir(curdir)
-                
                 server_script_user = header + "\n" + SERVER_SCRIPT
                 extra_setup = ""
                 
@@ -379,6 +351,9 @@ class NetworkRunner(Runner):
         self.process_handle: list[RPC_Future] = []
 
     def run(self, func, /, *args, **kwargs) -> RPC_Future:
+        if self.conn is None:
+            raise RuntimeError("No connection")
+        
         # teleport function
         self.conn.ping()
         self.conn.teleport(func)
@@ -394,26 +369,33 @@ class NetworkRunner(Runner):
         return self.process_handle[-1]
 
     def close(self):
+        print("cleaning")
         try:
-            self.conn.execute("pool.close()")
-        except:
-            pass
+            if self.conn is not None:
+                self.conn.execute("pool.close()")
+        except Exception as e:
+            print("abc", e)
         try:
-            self.bg_event_loop.stop()
-            self.conn.close()
-            print("1 Cleaned up")
-        except:
-            pass
+            if self.conn is not None:
+                self.bg_event_loop.stop()
+                self.conn.close()
+                print("1 Cleaned up")
+            self.conn = None
+        except Exception as e:
+            print("asdf", e)
         try:
             if self.server is not None:
                 self.server.close()
+            self.server = None
         except Exception as e:
-            print(e)
+            print("b", e)
         try:
             if self.machine is not None:
                 self.machine.close()
+            self.machine = None
         except Exception as e:
-            print(e)
+            print("c", e)
+        print("allesclar")
     
     def __del__(self):
         self.close()
@@ -655,7 +637,7 @@ class Pool:
                 index = (index + i) % len(self.scheduler_status)
         if not index_found:
             index = (index + 1) % len(self.scheduler_status)
-            print("ALL BUSY")
+            # print("ALL BUSY")
         self.scheduler_index = index
         return self.scheduler[index]
     
@@ -686,7 +668,7 @@ class Pool:
 #################################################################
 
 class DeployedWindowsServer(DeployedServer):
-    def __init__(self: DeployedServer,
+    def __init__(self: "DeployedWindowsServer",
                 remote_machine: SshMachine | ParamikoMachine,
                 server_class="rpyc.utils.server.ThreadedServer",
                 service_class="rpyc.core.service.SlaveService",
@@ -697,55 +679,6 @@ class DeployedWindowsServer(DeployedServer):
         self.tun = None
         self.remote_machine = remote_machine
         self._tmpdir_ctx = None
-        
-        class tempdir:
-            def __init__(self, remote_machine):
-                self.remote_machine = remote_machine
-                env_cmd = remote_machine["/c/Program\\ Files/Git/usr/bin/env"]
-                self.origdir = env_cmd["pwd"]().strip()
-                tempdir = env_cmd["mktemp"]("-d").strip()
-                self.path = tempdir
-            
-            def __enter__(self):
-                self.remote_machine.cwd.chdir(self.path)
-                return self.path
-            
-            def __exit__(self, exc_type, exc_val, exc_tb):
-                self.remote_machine.cwd.chdir(self.origdir)
-                env_cmd = self.remote_machine["/c/Program\\ Files/Git/usr/bin/env"]
-                print(self.origdir)
-                print(self.path)
-                print(self.path.strip().split("/")[-1])
-                path_folder = self.path.strip().split("/")[-1]
-                print(env_cmd["cd"]("AppData/Local/Temp/" + path_folder))
-                print(env_cmd["pwd"]())
-                print(env_cmd["pwd"]())
-                print(env_cmd["pwd"]())
-                # print(env_cmd["ls"]())
-                env_cmd["rm"]("-rf", self.path)
-
-        self._tmpdir_ctx = tempdir(remote_machine)
-        tmp = self._tmpdir_ctx.__enter__()
-        print(tmp)
-        
-        server_modname, server_clsname = server_class.rsplit(".", 1)
-        service_modname, service_clsname = service_class.rsplit(".", 1)
-
-        for source, target in (
-            ("$SERVER_MODULE$", server_modname),
-            ("$SERVER_CLASS$", server_clsname),
-            ("$SERVICE_MODULE$", service_modname),
-            ("$SERVICE_CLASS$", service_clsname),
-            ("$EXTRA_SETUP$", extra_setup),
-        ):
-            server_script = server_script.replace(source, target)
-
-        s = remote_machine.session()
-        s.run(f"cd {tmp}")
-        for line in server_script.split("\n"):
-            s.run(f"echo '{line}' >> server.py")
-        script = s.run(f"pwd")[1].strip() + "/server.py"
-        del s
         
         if isinstance(python_executable, BoundCommand):
             cmd = python_executable
@@ -765,6 +698,83 @@ class DeployedWindowsServer(DeployedServer):
             if not cmd:
                 cmd = remote_machine.python
 
+        class tempdir:
+            def __init__(self, remote_machine):
+                self.remote_machine = remote_machine
+                env_cmd = remote_machine["/c/Program\\ Files/Git/usr/bin/env"]
+                # self.origdir = env_cmd["pwd"]().strip()
+                # tempdir = env_cmd["python3", "-c"]("import tempfile; "
+                #               "td = tempfile.TemporaryDirectory(); "
+                #               "print(td.name)").strip()
+                # print(tempdir, "11111111111")
+                tempdir = env_cmd["mktemp"]("-d").strip()
+                self.path = tempdir
+                
+                print(tempdir)
+                self.s = remote_machine.session()
+            
+            def __enter__(self):
+                # self.remote_machine.cwd.chdir(self.path)
+                return self.path
+            
+            def __exit__(self, exc_type, exc_val, exc_tb):
+                # self.remote_machine.cwd.chdir(self.origdir)
+                # env_cmd = self.remote_machine["/c/Program\\ Files/Git/usr/bin/env"]
+                # print(self.origdir)
+                # print(self.path.strip().split("/")[-1])
+                path_folder = self.path.strip().split("/")[-1]
+                self.s.run(f"cd AppData/Local/Temp/{path_folder}")
+                self.s.run(f"cd ..")
+                # print(self.s.run(f"pwd")[1].strip())
+                # print(self.path, path_folder)
+                # print(self.s.run(f"pwd"))
+                # print(self.s.run(f"ls {path_folder}"))
+                failed = False
+                try:
+                    self.s.run(f"rm -rf {path_folder}")
+                    # print(self.s.run(f"rm -rf {path_folder}"))
+                except Exception as e:
+                    print("1", e)
+                    failed = True
+                if failed: 
+                    try:
+                        time.sleep(2)
+                        self.s.run(f"rm -rf {path_folder}")
+                        # print(self.s.run(f"rm -rf {path_folder}"))
+                    except Exception as e:
+                        print("2", e)
+                        self.s.run(f"rm -rf {path_folder}")
+                # try:
+                #     print(self.s.run(f"ls {path_folder}"))
+                # except Exception as e:
+                #     print("2", e)
+                # print(self.path, path_folder)
+                # print(self.s.run(f"pwd"))
+                del self.s
+
+        self._tmpdir_ctx = tempdir(remote_machine)
+        tmp = self._tmpdir_ctx.__enter__()
+        # print(tmp)
+        
+        server_modname, server_clsname = server_class.rsplit(".", 1)
+        service_modname, service_clsname = service_class.rsplit(".", 1)
+
+        for source, target in (
+            ("$SERVER_MODULE$", server_modname),
+            ("$SERVER_CLASS$", server_clsname),
+            ("$SERVICE_MODULE$", service_modname),
+            ("$SERVICE_CLASS$", service_clsname),
+            ("$EXTRA_SETUP$", extra_setup),
+        ):
+            server_script = server_script.replace(source, target)
+
+        s = remote_machine.session()
+        s.run(f"cd {tmp}")
+        for line in server_script.split("\n"):
+            s.run(f"echo '{line}' >> server.py")
+        script = str(s.run(f"pwd")[1].strip()) + "/server.py"
+        del s
+        
         self.proc = cmd.popen(script, new_session=True)
 
         line = ""
@@ -772,30 +782,34 @@ class DeployedWindowsServer(DeployedServer):
         try:
             line = self.proc.stdout.readline()
             self.remote_port = int(line.strip())
+            print("remote port", self.remote_port)
             save_forward.set()
             
             def thread_printer():
+                print("thread printer")
+                save_forward.wait()
                 while True:
                     try:
-                        line = self.proc.stdout.read()
+                        line = self.proc.stdout.read(1)
                         # print(">", line.decode("utf-8"), line, "<", sep="", end="")
-                        print(">", line, "<", sep="", end="")
-                        line = self.proc.stderr.read()
-                        print(">", line, "<", sep="", end="")
-                        if not line:
-                            break
-                    except Exception:
+                        if line != b"":
+                            print(">", line, "<", sep="", end="")
+                        # line = self.proc.stderr.read(1)
+                        # print("+", line, "+", sep="", end="")
+                    except Exception as e:
+                        # print("a", e)
                         break
 
             thread = Thread(target=thread_printer)
-            # thread.start()
-            del thread
+            thread.start()
+            # del thread
         except Exception:
             try:
                 self.proc.terminate()
             except Exception:
                 pass
-            stdout, stderr = self.proc.communicate("exit\n".encode("utf-8"))
+            # stdout, stderr = self.proc.communicate("exit\n".encode("utf-8"))
+            stdout, stderr = self.proc.communicate()
             from rpyc.lib.compat import BYTES_LITERAL
             raise ProcessExecutionError(self.proc.argv, self.proc.returncode, BYTES_LITERAL(line) + stdout, stderr)
 
