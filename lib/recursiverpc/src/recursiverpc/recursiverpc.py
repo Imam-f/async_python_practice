@@ -13,10 +13,9 @@ from threading import Thread, Event
 
 import inspect
 import rpyc
-from rpyc.utils.zerodeploy import DeployedServer
-from rpyc.utils.zerodeploy import SERVER_SCRIPT
+from rpyc.utils.zerodeploy import DeployedServer, SERVER_SCRIPT
 
-from plumbum import SshMachine, TF
+from plumbum import SshMachine
 from plumbum.commands import CommandNotFound, ProcessExecutionError
 from plumbum.commands.base import BoundCommand
 from plumbum.machines.paramiko_machine import ParamikoMachine
@@ -30,6 +29,72 @@ old_print = print
 # from multiprocess import Pool
 
 ##################################################################
+
+SERVER_SCRIPT = r"""\
+if __name__ == "__main__":
+    import sys
+    import os
+    import atexit
+    import shutil
+    import time
+
+    here = os.path.dirname(__file__)
+    os.chdir(here)
+
+    def rmdir():
+        shutil.rmtree(here, ignore_errors = True)
+    atexit.register(rmdir)
+
+    try:
+        for dirpath, _, filenames in os.walk(here):
+            for fn in filenames:
+                if fn == "__pycache__" or (fn.endswith(".pyc") and os.path.exists(fn[:-1])):
+                    os.remove(os.path.join(dirpath, fn))
+    except Exception:
+        pass
+
+    sys.path.insert(0, here)
+    from $SERVER_MODULE$ import $SERVER_CLASS$ as ServerCls
+    from $SERVICE_MODULE$ import $SERVICE_CLASS$ as ServiceCls
+
+    logger = None
+    $EXTRA_SETUP$
+
+    t = ServerCls(ServiceCls, hostname = "localhost", port = 0, reuse_addr = True, logger = logger)
+    thd = t._start_in_thread()
+
+    # sys.stdout.write(f"second_time\n")
+    # sys.stdout.flush()
+    sys.stdout.write(f"{t.port}\n")
+    sys.stdout.flush()
+
+    try:
+        read_data = sys.stdin.read()
+        while read_data == "":
+            read_data = sys.stdin.read()
+            time.sleep(60)
+    except Exception as e:
+        sys.stdout.write(f"exception\n")
+        sys.stdout.flush()
+    finally:
+        t.close()
+        thd.join(2)
+        stdin_read = sys.stdin.read()
+        sys.stdout.write(stdin_read)
+        sys.stdout.flush()
+        while stdin_read != "":
+            stdin_read = sys.stdin.read()
+            sys.stdout.write(stdin_read)
+            sys.stdout.flush()
+        if sys.stdin.isatty():
+            sys.stdout.write(f"closing3\n")
+            sys.stdout.flush()
+        if sys.stdin.closed:
+            sys.stdout.write(f"closing2\n")
+            sys.stdout.flush()
+        sys.stdout.write(f"closing\n")
+        sys.stdout.flush()
+"""
 
 @dataclass
 class tupleprocess:
@@ -303,22 +368,17 @@ class RPC_Future(Generic[T]):
         return self.scheduler.status()
 
     def get(self):
-        # while not self.result.done():
-        #     print("not done")
-        #     pass
+        while not self.result.done():
+            time.sleep(0.1)
         return self.result.result()
 
     def status(self):
-        # print("pooled ", self.result.done())
-        print("pooled ---")
         return self.result.done()
 
     @staticmethod
     def as_completed(cls_act: list["RPC_Future[T]"]) -> Generator[T, None, None]:
         cls = cls_act.copy()
         while any(cls):
-            # time.sleep(1)
-            # print("len", len(cls), any(cls))
             for i, v in enumerate(cls):
                 print(i)
                 if v and v.status():
@@ -404,18 +464,19 @@ class NetworkRunner(Runner):
                         header += newlines
                     print(header)
                     os.chdir(curdir)
-                server_script_user = header + "\n" + SERVER_SCRIPT[1:]
+                
+                # print(custom_script)
+                server_script_user = header + "\n" + SERVER_SCRIPT
+                # print(server_script_user)
+                # print(header)
                 extra_setup = ""
                 
                 major = sys.version_info[0]
                 minor = sys.version_info[1]
                 
-                # print(server_script_user)
-                
                 executable = f"uv run --python {major}.{minor} --script"
                 executable = env_cmd["uv", "run", "-q", "--python", f"{major}.{minor}", "--script"]
                 self.server = DeployedWindowsServer(self.machine,
-                                            #  server_script=server_script_user,
                                              server_script=server_script_user,
                                              extra_setup=extra_setup,
                                              python_executable=executable)
@@ -681,10 +742,6 @@ class ProxyRunner(Runner):
         return (is_pool_active, process_num, not_done_count, 0)
 
 #################################################################
-# import multiprocessing
-
-def do_nothing():
-    pass
 
 class Pool:
     def __init__(self, max_workers: int, offset: int = 0, printer=print):
@@ -702,11 +759,11 @@ class Pool:
         for _ in range(max_workers):
             printer("asdfasdfasdf")
             print("thread")
-            # conn = rpyc.classic.connect_thread()
+            conn = rpyc.classic.connect_thread()
             
             # process = multiprocessing.Process(target=do_nothing)
             # process.start()
-            conn = rpyc.classic.connect_multiprocess()
+            # conn = rpyc.classic.connect_multiprocess()
             printer("asdfasdfasdf2222222")
             # conn = None
             self.scheduler.append(conn)
@@ -749,15 +806,18 @@ class Pool:
         
         result_future = Future()
         def function_async(*args, **kwargs):
-            nonlocal result_future
             print("called")
+            nonlocal result_future
             result = function(*args, **kwargs)
+            result_future.set_running_or_notify_cancel()
             result_future.set_result(result)
             self.scheduler_status[self.scheduler_index] = False
             print("done")
         
         thread = Thread(target=function_async, args=args, kwargs=kwargs)
         thread.start()
+        print("thread started")
+        
         return result_future
 
     def close(self):
