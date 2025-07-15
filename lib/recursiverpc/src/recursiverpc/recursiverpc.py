@@ -21,12 +21,6 @@ from plumbum.commands.base import BoundCommand
 from plumbum.machines.paramiko_machine import ParamikoMachine
 
 old_print = print
-# import paramiko
-# from scp import SCPClient
-
-# print = lambda *args, **kwargs: None
-# import multiprocess as multiprocessing
-# from multiprocess import Pool
 
 ##################################################################
 
@@ -131,122 +125,6 @@ class proxyprocess(tupleprocess):
     client: list["localprocess | networkprocess | proxyprocess"]
     ssh_login: Tuple
     ssh_remote: Dict[str,Tuple]
-
-class CustomList:
-    def __init__(self, items):
-        self.items = list(items)
-    
-    def sort(self, key=None, reverse=False):
-        """Sorts the list in place and returns self for chaining."""
-        self.items.sort(key=key, reverse=reverse)
-        return CustomList(self.items)
-    
-    def filter(self, function):
-        """Filters the list based on the given function and returns self for chaining."""
-        self.items = list(filter(function, self.items))
-        return CustomList(self.items)
-    
-    def map(self, function):
-        """Applies the given function to each item in the list and returns self for chaining."""
-        self.items = list(map(function, self.items))
-        return CustomList(self.items)
-
-    def inspect(self):
-        """Print each element to screen and return as is"""
-        for i in self.items:
-            print(i)
-        return self
-    
-    def tee(self, out, function=None):
-        """Applies the given function to each item in the list and returns self for chaining."""
-        out.clear()
-        if function is None:
-            function = lambda x: x
-        for i in self.items:
-            out.append(function(i))
-        return CustomList(self.items)
-
-    def teemap(self, out, function=None):
-        """Applies the given function to each item in the list and returns self for chaining."""
-        import copy
-        out.clear()
-        if function is None:
-            function = lambda x: x
-        temp = []
-        for i in self.items:
-            i = function(i)
-            temp.append(i)
-            out.append(copy.copy(i))
-        return CustomList(temp)
- 
-    def take(self, n):
-        """Takes the first n elements of the list and returns self for chaining."""
-        if n > len(self.items):
-            raise IndexError("List index out of range")
-        self.items = self.items[:n]
-        return CustomList(self.items)
-
-    def skip(self, n):
-        """Skips the first n elements of the list and returns self for chaining."""
-        if n > len(self.items):
-            raise IndexError("List index out of range")
-        self.items = self.items[n:]
-        return CustomList(self.items)
-
-    def reduce(self, function, initial=None):
-        """Reduces the list using the given function."""
-        if initial is None:
-            accumulator = self.items[0]
-        for i in range(len(self.items) - 1):
-            accumulator = function(accumulator, self.items[i + 1])
-        return accumulator
-
-    def reverse(self):
-        """Reverses the list and returns self for chaining."""
-        self.items = self.items[::-1]
-        return CustomList(self.items)
-
-    def get(self, index):
-        """Returns the item at the given index."""
-        return self.items[index]
-    
-    def to_list(self):
-        """Returns the underlying list."""
-        return self.items
-
-    def __repr__(self):
-        return f"CustomList({self.items})"
-
-    def __getitem__(self, index):
-        return self.items[index]
-
-    def __setitem__(self, index, value):
-        raise NotImplementedError
-
-    def __len__(self):
-        return len(self.items)
-
-def pipe(x, *fns):
-    """
-    pipe(x, f1, f2, (f3, (2), {})) == f3(f2(f1(x)), 2, **{})
-    """
-    for i in fns:
-        match i:
-            case (func, args, kwargs) if (callable(func) 
-                    and isinstance(args, tuple) 
-                    and isinstance(kwargs, dict)):
-                x = func(x, *args, **kwargs)
-            case (func, args) if (callable(func)
-                                    and isinstance(args, tuple)):
-                x = func(x, *args)
-            case (func, kwargs) if (callable(func)
-                                    and isinstance(kwargs, dict)):
-                x = func(x, **kwargs)
-            case func if callable(func):
-                x = func(x)
-            case _:
-                raise TypeError
-    return x 
 
 ################################################################
 
@@ -395,7 +273,6 @@ class RPC_Future(Generic[T]):
         cls = cls_act.copy()
         while any(cls):
             for i, v in enumerate(cls):
-                print("here")
                 if v and v.status():
                     yield v.get()
                     cls.remove(v)
@@ -463,11 +340,9 @@ class NetworkRunner(Runner):
                 header = "#!/usr/bin/env uv run --script\n"
                 curdir = os.getcwd()
                 with tempfile.TemporaryDirectory() as temp_dir:
-                    print(temp_dir)
                     os.chdir(temp_dir)
                     os.system(f"uv pip freeze > requirements.txt")
                     os.system(f"touch util.py")
-                    print(os.popen(f"cat requirements.txt").read())
                     os.system(f"uv add --active -r requirements.txt --script util.py")
                     with open("util.py", "r") as f:
                         lines = f.read()
@@ -476,20 +351,14 @@ class NetworkRunner(Runner):
                                       "recursiverpc = { path = \"C:/Users/User/Documents/Dev/experiment/"
                                       "async_python_practice/lib/recursiverpc\", editable = true }")
                         header += newlines
-                    print(header)
                     os.chdir(curdir)
                 
-                # print(custom_script)
                 server_script_user = header + "\n" + SERVER_SCRIPT
-                # print(server_script_user)
-                # print(header)
                 extra_setup = ""
                 
                 major = sys.version_info[0]
                 minor = sys.version_info[1]
                 
-                # executable = f"uv run --python {major}.{minor} --script"
-                # executable = env_cmd["uv", "run", "--python", f"{major}.{minor}", "--script"]
                 executable = env_cmd["uv", "run", "-q", "--python", f"{major}.{minor}", "--script"]
                 self.server = DeployedWindowsServer(self.machine,
                                              server_script=server_script_user,
@@ -504,16 +373,7 @@ class NetworkRunner(Runner):
                 raise RuntimeError("Invalid connection")
         
         self.bg_event_loop = BgServingThread(self.conn)
-        # check dependency
-        # run pool on remote instance
-        # self.conn.modules.sys.stdout = sys.stdout
-        self.conn.execute("import os")
-        # self.conn.builtins.print = print
-        # self.conn.execute("def printer(x, *args): print(os.getpid(), x, *args)")
-        # printer = self.conn.namespace["printer"]
-        # printer(print, "printer")
         self.conn.execute("from recursiverpc import *")
-        
         self.conn.execute(f"pool = Pool({self.process_num})")
         
         self.process_handle: list[RPC_Future] = []
@@ -767,9 +627,7 @@ class Pool:
         self.max_workers = max_workers if max_workers > 0 else multiprocessing.cpu_count()
         self.scheduler = []
         
-        print("Pooling")
         for _ in range(max_workers):
-            # conn = rpyc.classic.connect_thread()
             conn = rpyc.classic.connect_multiprocess()
             conn.modules.sys.stdout = sys.stdout
             conn.modules.sys.stderr = sys.stderr
@@ -816,9 +674,6 @@ class Pool:
         thread = Thread(target=function_async, args=args, kwargs=kwargs)
         thread.start()
         
-        import threading
-        print("how many count", threading.active_count())
-        
         return result_future
 
     def close(self):
@@ -858,6 +713,15 @@ class DeployedWindowsServer(DeployedServer):
             def __exit__(self, exc_type, exc_val, exc_tb):
                 self.remote_machine.cwd.chdir(self.origdir)
                 env_cmd = self.remote_machine["/c/Program\\ Files/Git/usr/bin/env"]
+                print(self.origdir)
+                print(self.path)
+                print(self.path.strip().split("/")[-1])
+                path_folder = self.path.strip().split("/")[-1]
+                print(env_cmd["cd"]("AppData/Local/Temp/" + path_folder))
+                print(env_cmd["pwd"]())
+                print(env_cmd["pwd"]())
+                print(env_cmd["pwd"]())
+                # print(env_cmd["ls"]())
                 env_cmd["rm"]("-rf", self.path)
 
         self._tmpdir_ctx = tempdir(remote_machine)
@@ -881,9 +745,6 @@ class DeployedWindowsServer(DeployedServer):
         for line in server_script.split("\n"):
             s.run(f"echo '{line}' >> server.py")
         script = s.run(f"pwd")[1].strip() + "/server.py"
-        # print(s.run(f"pwd"))
-        # print(s.run(f"ls server.py"))
-        # print(script)
         del s
         
         if isinstance(python_executable, BoundCommand):
@@ -914,7 +775,6 @@ class DeployedWindowsServer(DeployedServer):
             save_forward.set()
             
             def thread_printer():
-                # save_forward.wait()
                 while True:
                     try:
                         line = self.proc.stdout.read()
@@ -928,7 +788,8 @@ class DeployedWindowsServer(DeployedServer):
                         break
 
             thread = Thread(target=thread_printer)
-            thread.start()
+            # thread.start()
+            del thread
         except Exception:
             try:
                 self.proc.terminate()

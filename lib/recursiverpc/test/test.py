@@ -3,15 +3,11 @@ import time
 import os
 from dotenv import load_dotenv
 load_dotenv()
-load_dotenv()
 import traceback
 
 from queue import Queue
-from multiprocessing import Pipe
 import paramiko
 from plumbum.machines.paramiko_machine import ParamikoMachine
-from plumbum import PuttyMachine
-from plumbum.machines.ssh_machine import SshMachine
 
 #################################################################
 
@@ -32,20 +28,6 @@ def main():
     PORT = int(os.getenv("PORT")) if os.getenv("PORT") else 22
     PASSWORD = os.getenv("PASSWORD") if os.getenv("PASSWORD") else None
     
-    remote_port = [18812, 18813, 18814, 18815]
-    # stop = activate_ssh(HOSTNAME,
-    #                     USER,
-    #                     PORT,
-    #                     PASSWORD,
-    #                     remote_port[0])
-    # stop()
-    # stop2 = activate_ssh(HOSTNAME,
-    #                     USER,
-    #                     PORT,
-    #                     PASSWORD,
-    #                     remote_port[3])
-    # stop2()
-
     # HOSTNAME_FORWARD = HOSTNAME
     # PORT_FORWARD = PORT
     # ssh_login = (USER, PASSWORD)
@@ -138,39 +120,17 @@ def main():
                 ], conn={}) as pool:
             print("Hello", os.getpid())
             queue = Queue()
-            # output_p, input_p = Pipe()
             queue_put = lambda x: queue.put(x)
             queue_get = lambda: queue.get()
             queue_pool = lambda: not queue.empty()
-            # queue_put = lambda x: input_p.send(x)
-            # queue_get = lambda: output_p.recv()
-            # queue_pool = lambda: output_p.poll(0.1)
-            # queue_pool = lambda: output_p.poll(0.1)
             # queue_put = queue
             # queue_get = queue
             import faulthandler
             faulthandler.enable()
             faulthandler.dump_traceback_later(timeout=10)
             value1 = pool.apply_async(value_producer, queue_put, print)
-            # value1 = pool.apply_async(value_producer, queue_put, None)
-            # stat1 = value1.status()
-            # time.sleep(10)
             value2 = pool.apply_async(value_consumer, (queue_get, queue_pool), print)
-            # value2 = pool.apply_async(value_consumer, queue_get, None)
-            # stat2 = value2.status()
             
-            import threading
-            print("how many count", threading.active_count())
-            # while True:
-            #     time.sleep(5)
-            # while True:
-            #     stat1 = value1.status()
-            #     stat2 = value2.status()
-            #     print("s", stat1, stat2)
-            #     time.sleep(0.1)
-            #     if stat1 and stat2:
-            #         print("break out")
-            #         break
             for async_result in RPC_Future.as_completed([value1, value2]):
                 print(async_result)
 
@@ -181,22 +141,13 @@ def value_producer(queue, print):
         print = __builtins__["print"]
     import time
     import os
-    import faulthandler
-    faulthandler.enable()
-    faulthandler.dump_traceback_later(timeout=10)
     print("Hello there", os.getpid())
     for i in range(10):
-        import threading
-        print("how many count", threading.active_count())
         print("Hello", i)
         if callable(queue):
-            print("putting 2")
             queue(i)
-            print("putting 2--")
         else:
-            print("putting 1")
             queue.put(i)
-            print("putting 1--")
         time.sleep(0.1)
     if callable(queue):
         queue(None)
@@ -211,31 +162,22 @@ def value_consumer(queue, print):
         print = __builtins__["print"]
     import time
     import os
-    import faulthandler
-    faulthandler.enable()
-    faulthandler.dump_traceback_later(timeout=15)
     print("Inigo Montoya", os.getpid())
     item = 0
-    import threading
-    print("how many count", threading.active_count())
     while True:
         if callable(queue):
-            print("getting 1")
             # if pooler():
             if True:
                 item = queue()
             else:
                 print("EMPTY")
-            print("getting 1--")
         else:
-            print("getting 2")
             item = queue.get()
-            print("getting 2--")
         if item is None:
             print("Done")
             return 5
         print(item + 7)
-        # time.sleep(0.1)
+        time.sleep(0.1)
 
 ################################################################
 
