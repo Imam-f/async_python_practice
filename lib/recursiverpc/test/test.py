@@ -1,10 +1,11 @@
-from recursiverpc import *
+from recursiverpc import Recursive_RPC, localprocess, networkprocess, proxyprocess, RPC_Future
 import time
 import os
 from dotenv import load_dotenv
 load_dotenv()
 import traceback
 
+from typing import Callable
 from queue import Queue
 import paramiko
 from plumbum.machines.paramiko_machine import ParamikoMachine
@@ -27,10 +28,20 @@ def main():
     # Create a pool of worker processes
     # The number of processes is set to the number of CPU cores
     
-    HOSTNAME: str = os.getenv("HOSTNAME") if os.getenv("HOSTNAME") else "localhost"
-    USER: str = os.getenv("USER") if os.getenv("USER") else "root"
-    PORT = int(os.getenv("PORT")) if os.getenv("PORT") else 22
-    PASSWORD = os.getenv("PASSWORD") if os.getenv("PASSWORD") else None
+    HOSTNAME = os.getenv("HOSTNAME")
+    if HOSTNAME is None:
+        HOSTNAME = "localhost"
+    USER = os.getenv("USER")
+    if USER is None:
+        USER = "root"
+    PORT = os.getenv("PORT")
+    if PORT is None:
+        PORT = 22
+    else:
+        PORT = int(PORT)
+    PASSWORD = os.getenv("PASSWORD")
+    if PASSWORD is None:
+        PASSWORD = None
     
     # HOSTNAME_FORWARD = HOSTNAME
     # PORT_FORWARD = PORT
@@ -104,7 +115,6 @@ def main():
                 print("Results 6:", i)
             print(f"execution time: {time.time() - start_time:.2f} seconds")
     
-    
     sshmachine = ParamikoMachine(host=HOSTNAME,
                                  user=USER, 
                                  port=PORT, 
@@ -159,12 +169,12 @@ def main():
                 import time
                 import os
                 print("Inigo Montoya", os.getpid())
-                item = 0
+                item: int | None = 0
                 while True:
                     if callable(queue):
                         # if pooler():
                         if True:
-                            item = queue()
+                            item = queue() # type: ignore
                         else:
                             print("EMPTY")
                     else:
