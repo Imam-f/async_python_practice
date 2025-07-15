@@ -9,7 +9,7 @@ import time
 from dataclasses import dataclass
 
 from concurrent.futures import Future, ProcessPoolExecutor
-from threading import Thread
+from threading import Thread, Event
 
 import inspect
 import rpyc
@@ -303,8 +303,9 @@ class RPC_Future(Generic[T]):
         return self.scheduler.status()
 
     def get(self):
-        while not self.result.done():
-            pass
+        # while not self.result.done():
+        #     print("not done")
+        #     pass
         return self.result.result()
 
     def status(self):
@@ -319,7 +320,7 @@ class RPC_Future(Generic[T]):
             # time.sleep(1)
             # print("len", len(cls), any(cls))
             for i, v in enumerate(cls):
-                # print(v)
+                print(i)
                 if v and v.status():
                     # print("found one")
                     yield v.get()
@@ -412,7 +413,7 @@ class NetworkRunner(Runner):
                 # print(server_script_user)
                 
                 executable = f"uv run --python {major}.{minor} --script"
-                executable = env_cmd["uv", "run", "--python", f"{major}.{minor}", "--script"]
+                executable = env_cmd["uv", "run", "-q", "--python", f"{major}.{minor}", "--script"]
                 self.server = DeployedWindowsServer(self.machine,
                                             #  server_script=server_script_user,
                                              server_script=server_script_user,
@@ -681,6 +682,10 @@ class ProxyRunner(Runner):
 
 #################################################################
 # import multiprocessing
+
+def do_nothing():
+    pass
+
 class Pool:
     def __init__(self, max_workers: int, offset: int = 0, printer=print):
         printer("offset", offset)
@@ -697,8 +702,13 @@ class Pool:
         for _ in range(max_workers):
             printer("asdfasdfasdf")
             print("thread")
-            conn = rpyc.classic.connect_thread()
+            # conn = rpyc.classic.connect_thread()
+            
+            # process = multiprocessing.Process(target=do_nothing)
+            # process.start()
+            conn = rpyc.classic.connect_multiprocess()
             printer("asdfasdfasdf2222222")
+            # conn = None
             self.scheduler.append(conn)
 
         # print("max index before", self.scheduler_index)
@@ -732,15 +742,19 @@ class Pool:
         return self.scheduler[index]
     
     def apply_async(self, func, args, kwargs):
+        print("submitting")
         runner = self._schedule()
         function = runner.teleport(func)
+        print("teleported")
         
         result_future = Future()
         def function_async(*args, **kwargs):
             nonlocal result_future
+            print("called")
             result = function(*args, **kwargs)
             result_future.set_result(result)
             self.scheduler_status[self.scheduler_index] = False
+            print("done")
         
         thread = Thread(target=function_async, args=args, kwargs=kwargs)
         thread.start()
@@ -836,23 +850,30 @@ class DeployedWindowsServer(DeployedServer):
         self.proc = cmd.popen(script, new_session=True)
 
         line = ""
+        save_forward = Event()
         try:
             print("reading remote port")
+            # line = self.proc.stdout.readline()
+            # print("line", line)
             line = self.proc.stdout.readline()
             self.remote_port = int(line.strip())
+            save_forward.set()
             
             print(line)
             def thread_printer():
+                # save_forward.wait()
                 while True:
                     try:
-                        line = self.proc.stdout.read(1)
-                        print(line.decode("utf-8"), end="")
+                        line = self.proc.stdout.read()
+                        # print(">", line.decode("utf-8"), line, "<", sep="", end="")
+                        print(">", line, "<", sep="", end="")
+                        if not line:
+                            break
                     except Exception:
                         break
 
             thread = Thread(target=thread_printer)
             thread.start()
-        
         except Exception:
             try:
                 self.proc.terminate()
@@ -869,4 +890,3 @@ class DeployedWindowsServer(DeployedServer):
         else:
             self.local_port = rpyc.utils.factory._get_free_port()
             self.tun = remote_machine.tunnel(self.local_port, self.remote_port)
-        

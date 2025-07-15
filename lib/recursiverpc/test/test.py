@@ -7,6 +7,7 @@ load_dotenv()
 import traceback
 
 from queue import Queue
+from multiprocessing import Pipe
 import paramiko
 from plumbum.machines.paramiko_machine import ParamikoMachine
 from plumbum import PuttyMachine
@@ -51,13 +52,13 @@ def main():
     
     # print("connecting")
     # print(HOSTNAME, USER, PORT, PASSWORD)
-    sshmachine = ParamikoMachine(host=HOSTNAME,
-                                 user=USER, 
-                                 port=PORT, 
-                                 password=PASSWORD,
-                                 missing_host_policy=paramiko.AutoAddPolicy())
+    # sshmachine = ParamikoMachine(host=HOSTNAME,
+    #                              user=USER, 
+    #                              port=PORT, 
+    #                              password=PASSWORD,
+    #                              missing_host_policy=paramiko.AutoAddPolicy())
     
-    if True:
+    if False:
         with Recursive_RPC(client=[
                     # proxyprocess(remote_port[1], HOSTNAME_FORWARD, PORT_FORWARD, [
                     #     localprocess(4),
@@ -130,41 +131,52 @@ def main():
                     #     networkprocess(2, HOSTNAME, remote_port[2], "tag1")
                     # ], ssh_login, {"tag1": (HOSTNAME, USER, PORT, PASSWORD, remote_port[2])}),
                     # localprocess(2),
-                    networkprocess(4, sshmachine),
+                    networkprocess(8, sshmachine),
                     # networkprocess(2, HOSTNAME, remote_port[3], stop2)
                 ], conn={}) as pool:
             print("Hello", os.getpid())
             queue = Queue()
-            # queue_put = lambda x: queue.put(x)
-            # queue_get = lambda: queue.get()
-            queue_put = queue
-            queue_get = queue
+            # output_p, input_p = Pipe()
+            queue_put = lambda x: queue.put(x)
+            queue_get = lambda: queue.get()
+            # queue_put = lambda x: input_p.send(x)
+            # queue_get = lambda: output_p.recv()
+            # queue_put = queue
+            # queue_get = queue
             value1 = pool.apply_async(value_producer, queue_put, print)
+            stat1 = value1.status()
+            # time.sleep(10)
             value2 = pool.apply_async(value_consumer, queue_get, print)
+            stat2 = value2.status()
             
             while True:
                 print("------------------")
                 stat1 = value1.status()
                 stat2 = value2.status()
-                print(stat1, stat2)
+                print("s", stat1, stat2)
                 print("=========")
-                time.sleep(0.2)
+                time.sleep(0.1)
                 if stat1 and stat2:
+                    print("break out")
                     break
             # for async_result in RPC_Future.as_completed([value1, value2]):
             #     print(async_result)
 
 def value_producer(queue, print):
-    import time
+    # import time
     import os
     print("Hello there", os.getpid())
     for i in range(10):
         print("Hello", i)
         if callable(queue):
+            print("putting 2")
             queue(i)
+            print("putting 2--")
         else:
+            print("putting 1")
             queue.put(i)
-        time.sleep(0.1)
+            print("putting 1--")
+        # time.sleep(0.1)
         print(i)
     if callable(queue):
         queue(None)
@@ -177,9 +189,13 @@ def value_consumer(queue, print):
     item = 0
     while True:
         if callable(queue):
+            print("getting 1")
             item = queue()
+            print("getting 1--")
         else:
+            print("getting 2")
             item = queue.get()
+            print("getting 2--")
         if item is None:
             print("Done")
             return 5
