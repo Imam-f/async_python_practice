@@ -295,7 +295,7 @@ class RPC_Future(Generic[T]):
     """
     This class is a placeholder of future value
     """
-    def __init__(self, result, scheduler: "Runner"):
+    def __init__(self, result: Future, scheduler: "Runner"):
         self.result = result
         self.scheduler = scheduler
 
@@ -303,21 +303,27 @@ class RPC_Future(Generic[T]):
         return self.scheduler.status()
 
     def get(self):
+        while not self.result.done():
+            pass
         return self.result.result()
 
     def status(self):
-        return self.result.ready()
+        # print("pooled ", self.result.done())
+        print("pooled ---")
+        return self.result.done()
 
     @staticmethod
     def as_completed(cls_act: list["RPC_Future[T]"]) -> Generator[T, None, None]:
         cls = cls_act.copy()
         while any(cls):
+            # time.sleep(1)
+            # print("len", len(cls), any(cls))
             for i, v in enumerate(cls):
+                # print(v)
                 if v and v.status():
+                    # print("found one")
                     yield v.get()
                     cls.remove(v)
-
-
 
 ################################################################
 
@@ -336,13 +342,15 @@ class Runner:
     def status(self) -> Tuple: ...
 
 class ProcessRunner(Runner):
-    def __init__(self, num: int):
+    def __init__(self, num: int, printer=print):
+        print("ProcessRunner", num)
+        printer("ProcessRunner", num)
+        
         self.pool: "Pool" = Pool(num)
         self.process_num = self.pool.max_workers
         self.process_handle: list[RPC_Future] = []
 
     def run(self, func, /, *args, **kwargs) -> RPC_Future:
-        # print("============", func.__name__)
         result = self.pool.apply_async(func, args, kwargs)
         self.process_handle.append(RPC_Future(result, self))
         return self.process_handle[-1]
@@ -371,17 +379,10 @@ class NetworkRunner(Runner):
             case SshMachine() | ParamikoMachine():
                 self.machine = con
                 try:
-                    # env_cmd = self.machine["/usr/bin/env"]
-                    # print(env_cmd("pwd".split(" ")))
-                    # print(env_cmd("env".split(" ")))
-                    # print(env_cmd(".local/bin/uv --version".split(" ")))
-                    
                     env_cmd = self.machine["/c/Program\\ Files/Git/usr/bin/env"]
-                    # uv_cmd = self.machine['.local/bin/uv', "--version"]
                     uv_cmd = env_cmd("uv --version".split(" "))
                 except:
                     raise RuntimeError("uv not installed")
-                
                 
                 # read requirements txt with uv
                 header = "#!/usr/bin/env uv run --script\n"
@@ -398,16 +399,10 @@ class NetworkRunner(Runner):
                         newlines = lines.replace("recursiverpc = { path = \"../../../../Documents/Dev/experiment/"
                                       "async_python_practice/lib/recursiverpc\" }", 
                                       "recursiverpc = { path = \"C:/Users/User/Documents/Dev/experiment/"
-                                      "async_python_practice/lib/recursiverpc\" }")
+                                      "async_python_practice/lib/recursiverpc\", editable = true }")
                         header += newlines
                     print(header)
                     os.chdir(curdir)
-                    # time.sleep(50)
-                # add deps to script with uv
-                # add rpyc to script
-                # add rpyc with uv
-                # send script to remote
-                
                 server_script_user = header + "\n" + SERVER_SCRIPT[1:]
                 extra_setup = ""
                 
@@ -416,58 +411,15 @@ class NetworkRunner(Runner):
                 
                 # print(server_script_user)
                 
-                # executable = self.machine["uv run " +\
-                #                           f"--python {major}.{minor} --script"]
                 executable = f"uv run --python {major}.{minor} --script"
                 executable = env_cmd["uv", "run", "--python", f"{major}.{minor}", "--script"]
-                # from textwrap import dedent
-                # script = dedent("""\
-                #     from rpyc.cli.rpyc_classic import *
-                #     if __name__ == "__main__":
-                #         main()
-                #     """)
-                # print(script)
-                # executable = self.machine["/c/Program\\ Files/Git/usr/bin/env uv run " +\
-                #                           f"--python {major}.{minor} --script"]
-                # print(executable())
-                
                 self.server = DeployedWindowsServer(self.machine,
                                             #  server_script=server_script_user,
                                              server_script=server_script_user,
                                              extra_setup=extra_setup,
                                              python_executable=executable)
                 
-                
-                # check uv
-                # start with uv
-                
                 self.conn = self.server.classic_connect()
-                # self.conn.close()
-                # if self.server is not None:
-                #     self.server.close()
-                # if self.machine is not None:
-                #     self.machine.close()
-                
-                # os._exit(0)
-                
-                # print("connected")
-                # if self.machine['uv --version']() & TF(1):
-                #     raise RuntimeError("uv not installed")
-                # 
-                # def start_rpyc_server():
-                #     f_name = f".rpyc_temp{int(10000 * random.random())}.py"
-                #     while self.machine[f'cat {f_name}']() & TF(1):
-                #         print("File exists")
-                #         f_name = f".rpyc_temp{int(10000 * random.random())}.py"
-                #     script = inspect.getsource(cl)
-                #     self.machine[f"echo '{script}' > {f_name}"]()
-                #     
-                #     major, minor, patch = platform.python_version_tuple()
-                #     self.machine[f"uv run --python {major}.{minor}.{patch} --script {f_name} -p 18812 -m oneshot"]()
-                # 
-                # self.thread = Thread(target=start_rpyc_server)
-                # self.thread.start()
-                # self.conn = rpyc.classic.connect("localhost", port=18812)
             case (hostname, port):
                 self.conn = rpyc.classic.connect(hostname, port=port)
             case _:
@@ -475,12 +427,22 @@ class NetworkRunner(Runner):
         
         # check dependency
         # run pool on remote instance
+        self.conn.execute("import os")
+        self.conn.builtins.print = print
+        self.conn.execute("def printer(x, *args): print(os.getpid(), x, *args)")
+        printer = self.conn.namespace["printer"]
+        printer(print, "printer")
         self.conn.execute("from recursiverpc import *")
-        self.conn.execute(f"pool = ProcessRunner({self.process_num})")
+        print(self.conn.eval("globals().keys()"))
         
-        # self.conn.execute("from multiprocess import Pool as Pl")
-        # self.conn.execute(f"pool = Pl({self.process_num})")
-
+        # time.sleep(1)
+        
+        self.conn.builtins.print = print
+        # self.conn.execute(f"os._exit(0)")
+        # self.conn.execute(f"pool = ProcessRunner({self.process_num})")
+        # self.conn.execute(f"pool = ProcessRunner(7, printer=printer)")
+        self.conn.execute(f"pool = Pool({self.process_num}, printer=printer)")
+        
         self.process_handle: list[RPC_Future] = []
 
     def run(self, func, /, *args, **kwargs) -> RPC_Future:
@@ -488,9 +450,15 @@ class NetworkRunner(Runner):
         self.conn.teleport(func)
         self.conn.namespace["args"] = args
         self.conn.namespace["kwargs"] = kwargs
-    
-        result = self.conn.eval(f"pool.apply_async({func.__name__}, args, kwargs)")
+        # print("=>>", self.conn.eval("globals().keys()"))
+        # print(self.conn.eval())
+
+        self.conn.execute(f"result = pool.apply_async({func.__name__}, args, kwargs)")
+        # result = self.conn.eval(f"pool.run({func.__name__}, args, kwargs)")
+        result = self.conn.namespace["result"]
+        # self.process_handle.append(result)
         self.process_handle.append(RPC_Future(result, self))
+        print("=>>", self.conn.eval("result.done()"))
         return self.process_handle[-1]
 
     def close(self):
@@ -712,20 +680,34 @@ class ProxyRunner(Runner):
         return (is_pool_active, process_num, not_done_count, 0)
 
 #################################################################
-
+# import multiprocessing
 class Pool:
-    def __init__(self, max_workers: int, offset: int = 0):
+    def __init__(self, max_workers: int, offset: int = 0, printer=print):
+        printer("offset", offset)
+        printer("max workers", max_workers)
+        print("max workers", max_workers)
+        
         import multiprocessing
         self.max_workers = max_workers if max_workers > 0 else multiprocessing.cpu_count()
         self.scheduler = []
         
+        print("max workers", self.max_workers)
+        
+        # time.sleep(5)
         for _ in range(max_workers):
-            conn = rpyc.classic.connect_multiprocess()
+            printer("asdfasdfasdf")
+            print("thread")
+            conn = rpyc.classic.connect_thread()
+            printer("asdfasdfasdf2222222")
             self.scheduler.append(conn)
 
+        # print("max index before", self.scheduler_index)
+        # printer("max index before", self.scheduler_index)
         # assign to scheduler
         self.scheduler_index = 0
         self.scheduler_status: list[bool] = [False] * self.max_workers
+        print("max index 1", self.scheduler_index)
+        printer("max index 2", self.scheduler_index)
     
     def __enter__(self):
         return self
@@ -772,7 +754,6 @@ class Pool:
         self.close()
 
 #################################################################
-
 
 class DeployedWindowsServer(DeployedServer):
     def __init__(self: DeployedServer,
@@ -824,28 +805,15 @@ class DeployedWindowsServer(DeployedServer):
         ):
             server_script = server_script.replace(source, target)
 
-        # script.write(server_script)
-        # write server script with bash command
-        env_cmd = remote_machine["/c/Program\\ Files/Git/usr/bin/env"]
         s = remote_machine.session()
-        # print(s.run(f"cd {tmp}"))
         s.run(f"cd {tmp}")
-        # print(s.run("pwd > tmp.txt"))
-        # print(s.run("cat tmp.txt"))
         for line in server_script.split("\n"):
-            # print("line:", line)
-            # print(s.run(f"echo '{line}' >> server.py"))
             s.run(f"echo '{line}' >> server.py")
-        # print(s.run(f"tee server.py <<EOF\n{server_script}\nEOF\n"))
-        # print(s.run("cat server.py"))
         script = s.run(f"pwd")[1].strip() + "/server.py"
         print(s.run(f"pwd"))
         print(s.run(f"ls server.py"))
         print(script)
         del s
-        
-        # self._tmpdir_ctx.__exit__(None, None, None)
-        # os._exit(0)
         
         if isinstance(python_executable, BoundCommand):
             cmd = python_executable
@@ -872,6 +840,19 @@ class DeployedWindowsServer(DeployedServer):
             print("reading remote port")
             line = self.proc.stdout.readline()
             self.remote_port = int(line.strip())
+            
+            print(line)
+            def thread_printer():
+                while True:
+                    try:
+                        line = self.proc.stdout.read(1)
+                        print(line.decode("utf-8"), end="")
+                    except Exception:
+                        break
+
+            thread = Thread(target=thread_printer)
+            thread.start()
+        
         except Exception:
             try:
                 self.proc.terminate()
