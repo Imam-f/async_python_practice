@@ -9,6 +9,10 @@ from queue import Queue
 import paramiko
 from plumbum.machines.paramiko_machine import ParamikoMachine
 
+# import faulthandler
+# faulthandler.enable()
+# faulthandler.dump_traceback_later(timeout=10)
+            
 #################################################################
 
 def worker_func(number):
@@ -125,59 +129,57 @@ def main():
             queue_pool = lambda: not queue.empty()
             # queue_put = queue
             # queue_get = queue
-            import faulthandler
-            faulthandler.enable()
-            faulthandler.dump_traceback_later(timeout=10)
+            
+            def value_producer(queue, print):
+                if callable(print):
+                    print = print
+                else:
+                    print = __builtins__["print"]
+                import time
+                import os
+                print("Hello there", os.getpid())
+                for i in range(10):
+                    print("Hello", i)
+                    if callable(queue):
+                        queue(i)
+                    else:
+                        queue.put(i)
+                    time.sleep(0.4)
+                if callable(queue):
+                    queue(None)
+                else:
+                    queue.put(None)
+
+            def value_consumer(queue, print):
+                queue, pooler = queue
+                if callable(print):
+                    print = print
+                else:
+                    print = __builtins__["print"]
+                import time
+                import os
+                print("Inigo Montoya", os.getpid())
+                item = 0
+                while True:
+                    if callable(queue):
+                        # if pooler():
+                        if True:
+                            item = queue()
+                        else:
+                            print("EMPTY")
+                    else:
+                        item = queue.get()
+                    if item is None:
+                        print("Done")
+                        return 5
+                    print(item + 7)
+                    time.sleep(0.2)
+
             value1 = pool.apply_async(value_producer, queue_put, print)
             value2 = pool.apply_async(value_consumer, (queue_get, queue_pool), print)
             
             for async_result in RPC_Future.as_completed([value1, value2]):
                 print(async_result)
-
-def value_producer(queue, print):
-    if callable(print):
-        print = print
-    else:
-        print = __builtins__["print"]
-    import time
-    import os
-    print("Hello there", os.getpid())
-    for i in range(10):
-        print("Hello", i)
-        if callable(queue):
-            queue(i)
-        else:
-            queue.put(i)
-        time.sleep(0.4)
-    if callable(queue):
-        queue(None)
-    else:
-        queue.put(None)
-
-def value_consumer(queue, print):
-    queue, pooler = queue
-    if callable(print):
-        print = print
-    else:
-        print = __builtins__["print"]
-    import time
-    import os
-    print("Inigo Montoya", os.getpid())
-    item = 0
-    while True:
-        if callable(queue):
-            # if pooler():
-            if True:
-                item = queue()
-            else:
-                print("EMPTY")
-        else:
-            item = queue.get()
-        if item is None:
-            print("Done")
-            return 5
-        print(item + 7)
-        time.sleep(0.2)
 
 ################################################################
 
