@@ -61,7 +61,13 @@ def main():
     print("================")
     print(sshmachine.cwd)
     print(local["ls"]())
-    # ls_cmd = sshmachine["env"]
+    try:
+        env_cmd = sshmachine["/usr/bin/env"]
+        print("env", env_cmd())
+        ls_cmd = sshmachine["/usr/bin/env"]
+        print(ls_cmd())
+    except Exception as e:
+        print(e)
     print(os.system("asdfhjk"), os.system("pwd"))
     
     print("================")

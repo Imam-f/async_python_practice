@@ -6,7 +6,13 @@ import platform
 import sys
 import tempfile
 import time
+import subprocess
+import json
+import re
 from dataclasses import dataclass
+
+from pathlib import Path
+from uv import find_uv_bin
 
 from concurrent.futures import Future
 from threading import Thread, Event
@@ -301,42 +307,53 @@ class NetworkRunner(Runner):
         match con:
             case SshMachine() | ParamikoMachine():
                 self.machine = con
-                try:
-                    env_cmd = self.machine["/c/Program\\ Files/Git/usr/bin/env"]
-                    uv_cmd = env_cmd("uv --version".split(" "))
-                except:
+                
+                # Get uv binary path
+                self.uv_bin = os.fsdecode(find_uv_bin())
+                print(self.uv_bin)
+                if not self._check_uv_available():
                     raise RuntimeError("uv not installed")
                 
-                # read requirements txt with uv
+                # Generate requirements and script header
                 header = "#!/usr/bin/env uv run --script\n"
                 curdir = os.getcwd()
+                
+                print(curdir)
                 with tempfile.TemporaryDirectory() as temp_dir:
+                    temp_dir = Path(temp_dir)
+                    # Generate requirements.txt using uv
                     os.chdir(temp_dir)
-                    # os.system(f"uv pip freeze")
-                    os.system(f"uv pip freeze > requirements.txt 2> log.txt")
-                    os.system(f"touch util.py")
-                    # os.system(f"uv add -q --active -r requirements.txt --script util.py")
-                    os.system(f"uv add -q --active -r requirements.txt --script util.py")
-                    with open("util.py", "r") as f:
-                        lines = f.read()
-                        newlines = lines.replace("recursiverpc = { path = \"../../../../Documents/Dev/experiment/"
-                                      "async_python_practice/lib/recursiverpc\" }", 
-                                      "recursiverpc = { path = \"C:/Users/User/Documents/Dev/experiment/"
-                                      "async_python_practice/lib/recursiverpc\", editable = true }")
-                        header += newlines
+                    self._generate_requirements()
+                    
+                    # Create util.py and add dependencies
+                    Path(temp_dir / "util.py").touch()
+                    self._add_script_dependencies()
                     os.chdir(curdir)
-                server_script_user = header + "\n" + SERVER_SCRIPT
+                    
+                    # Read and process the generated script
+                    with open(temp_dir / "util.py", "r") as f:
+                        lines = f.read()
+                        # Fix recursiverpc path to use current environment
+                        newlines = self._fix_recursiverpc_path(lines)
+                        header += newlines
+                
+                server_script_user = header + "\n" + SERVER_SCRIPT[1:]
                 extra_setup = ""
+                print(server_script_user)
                 
                 major = sys.version_info[0]
                 minor = sys.version_info[1]
                 
-                executable = env_cmd["uv", "run", "-q", "--python", f"{major}.{minor}", "--script"]
-                self.server = DeployedWindowsServer(self.machine,
-                                             server_script=server_script_user,
-                                             extra_setup=extra_setup,
-                                             server_class="rpyc.utils.server.OneShotServer",
-                                             python_executable=executable)
+                # Use uv run with script mode
+                self.uv_bin = os.path.relpath(os.fsdecode(find_uv_bin()), os.getcwd())
+                executable = ["/usr/bin/env", "uv", "run", "-q", "--python", f"{major}.{minor}", "--script"]
+                self.server = DeployedCrossPlatformServer(
+                    self.machine,
+                    server_script=server_script_user,
+                    extra_setup=extra_setup,
+                    server_class="rpyc.utils.server.OneShotServer",
+                    python_executable=executable
+                )
                 
                 self.conn = self.server.classic_connect()
             case (hostname, port):
@@ -352,7 +369,90 @@ class NetworkRunner(Runner):
         self.pool = self.conn.namespace["pool"]
         
         self.process_handle: list[RPC_Future] = []
+        
+        # self.bg_event_loop = BgServingThread(self.conn)
+        # self.conn.execute("from recursiverpc import *")
+        # self.conn.execute(f"pool = Pool({self.process_num})")
+        # 
+        # self.process_handle: list[RPC_Future] = []
 
+    def _check_uv_available(self) -> bool:
+        """Check if uv is available using the found binary"""
+        result = subprocess.run(
+            [self.uv_bin, "--version"], 
+            capture_output=True, text=True
+        )
+        return result.returncode == 0
+
+    def _generate_requirements(self):
+        """Generate requirements.txt using uv pip freeze"""
+        result = subprocess.run(
+            [self.uv_bin, "pip", "freeze"], 
+            capture_output=True, text=True, check=True
+        )
+        with open("requirements.txt", "w") as f:
+            f.write(result.stdout)
+
+    def _add_script_dependencies(self):
+        """Add dependencies to script using uv"""
+        print(subprocess.run(
+            [self.uv_bin, "add", "-q", "-r", "requirements.txt","--script", "util.py"],
+            # check=True, capture_output=True
+            capture_output=True
+        ))
+
+    def _fix_recursiverpc_path(self, content: str) -> str:
+        """Fix recursiverpc path to use current environment's installation"""
+        recursiverpc_path = self._get_recursiverpc_path()
+        if not recursiverpc_path:
+            return content
+        
+        # Pattern to match the recursiverpc dependency line
+        pattern = r'recursiverpc = \{[^}]*\}'
+        
+        # Escape backslashes for regex replacement
+        escaped_path = recursiverpc_path.replace('\\', '/')
+        
+        # Create replacement with current environment path
+        replacement = f'recursiverpc = {{ path = "{escaped_path}", editable = true }}'
+        
+        # Replace the pattern
+        return re.sub(pattern, replacement, content)
+
+    def _get_recursiverpc_path(self) -> str:
+        """Get the path to recursiverpc project root using __file__"""
+        try:
+            import recursiverpc
+            
+            # Get the module file path
+            module_file = Path(recursiverpc.__file__)
+            
+            # Navigate up to find the project root
+            # From src/recursiverpc/__init__.py -> project root
+            current = module_file.parent  # src/recursiverpc
+            
+            # Go up until we find pyproject.toml
+            while current.parent != current:
+                if (current / "pyproject.toml").exists():
+                    return str(current)
+                current = current.parent
+            
+            # If no pyproject.toml found, assume it's one level up from src
+            if module_file.parent.parent.name == "src":
+                project_root = module_file.parent.parent.parent
+                if (project_root / "pyproject.toml").exists():
+                    return str(project_root)
+            
+            # Fallback: return the parent of the module directory
+            return str(module_file.parent.parent)
+        except ImportError:
+            print("Warning: Could not import recursiverpc to determine path")
+            return ""
+
+    def _get_uv_executable(self, major: int, minor: int):
+        """Get uv executable command for remote execution"""
+        return [self.uv_bin, "run", "-q", "--python", f"{major}.{minor}", "--script"]
+    
     def run(self, func, /, *args, **kwargs) -> RPC_Future:
         if self.conn is None:
             raise RuntimeError("No connection")
@@ -639,7 +739,7 @@ class Pool:
                 index = (index + i) % len(self.scheduler_status)
         if not index_found:
             index = (index + 1) % len(self.scheduler_status)
-            # print("ALL BUSY")
+            print("ALL BUSY")
         self.scheduler_index = index
         return self.scheduler[index]
     
@@ -792,6 +892,8 @@ class DeployedWindowsServer(DeployedServer):
                 save_forward.wait()
                 while True:
                     try:
+                        if self.proc is None:
+                            raise Exception("stdout is None")
                         line = self.proc.stdout.read(1)
                         # print(">", line.decode("utf-8"), line, "<", sep="", end="")
                         if line != b"":
@@ -799,9 +901,7 @@ class DeployedWindowsServer(DeployedServer):
                         # line = self.proc.stderr.read(1)
                         # print("+", line, "+", sep="", end="")
                     except Exception as e:
-                        # print("a", e)
-                        break
-
+                        print("a", e)
             thread = Thread(target=thread_printer)
             thread.start()
             # del thread
@@ -821,3 +921,205 @@ class DeployedWindowsServer(DeployedServer):
         else:
             self.local_port = rpyc.utils.factory._get_free_port()
             self.tun = remote_machine.tunnel(self.local_port, self.remote_port)
+
+class DeployedCrossPlatformServer(DeployedServer):
+    def __init__(self,
+                remote_machine: SshMachine | ParamikoMachine,
+                server_class="rpyc.utils.server.ThreadedServer",
+                service_class="rpyc.core.service.SlaveService",
+                server_script=SERVER_SCRIPT,
+                extra_setup="",
+                python_executable=None) -> None:
+        self.proc = None
+        self.tun = None
+        self.remote_machine = remote_machine
+        self._tmpdir_ctx = None
+        
+        # Handle python executable
+        print(python_executable)
+        if isinstance(python_executable, (list, tuple)):
+            # If it's a list/tuple, build the command
+            cmd = remote_machine[python_executable[0]]
+            for part in python_executable[1:]:
+                cmd = cmd[part]
+        elif isinstance(python_executable, BoundCommand):
+            cmd = python_executable
+        elif python_executable:
+            cmd = remote_machine[python_executable]
+        else:
+            cmd = self._find_python_command(remote_machine)
+
+        self._tmpdir_ctx = CrossPlatformTempDir(remote_machine)
+        tmp = self._tmpdir_ctx.__enter__()
+        
+        server_modname, server_clsname = server_class.rsplit(".", 1)
+        service_modname, service_clsname = service_class.rsplit(".", 1)
+
+        for source, target in (
+            ("$SERVER_MODULE$", server_modname),
+            ("$SERVER_CLASS$", server_clsname),
+            ("$SERVICE_MODULE$", service_modname),
+            ("$SERVICE_CLASS$", service_clsname),
+            ("$EXTRA_SETUP$", extra_setup),
+        ):
+            server_script = server_script.replace(source, target)
+
+        # Write server script
+        script_path = self._write_server_script(remote_machine, tmp, server_script)
+        print(script_path, cmd.bound_command)
+        
+        self.proc = cmd.popen(script_path, new_session=True)
+        self._handle_server_startup()
+
+        if hasattr(remote_machine, "connect_sock"):
+            self.local_port = None
+        else:
+            self.local_port = rpyc.utils.factory._get_free_port()
+            self.tun = remote_machine.tunnel(self.local_port, self.remote_port)
+
+    def _find_python_command(self, remote_machine):
+        """Find appropriate Python command across platforms"""
+        major = sys.version_info[0]
+        minor = sys.version_info[1]
+        
+        python_candidates = [
+            f"python{major}.{minor}",
+            f"python{major}",
+            "python3",
+            "python"
+        ]
+        
+        for candidate in python_candidates:
+            try:
+                return remote_machine[candidate]
+            except CommandNotFound:
+                continue
+        
+        # Fallback to plumbum's python detection
+        return remote_machine.python
+
+    def _write_server_script(self, remote_machine, tmp_dir, server_script):
+        """Write server script in a cross-platform way"""
+        s = remote_machine.session()
+        try:
+            s.run(f"cd '{tmp_dir}'")
+            
+            # Write script line by line to avoid shell escaping issues
+            s.run("rm -f server.py")  # Remove if exists
+            for line in server_script.split("\n"):
+                # Escape single quotes in the line
+                escaped_line = line.replace("'", "'\"'\"'")
+                s.run(f"echo '{escaped_line}' >> server.py")
+            
+            # Get absolute path
+            result = s.run("pwd")
+            current_dir = result[1].strip()
+            script_path = f"{current_dir}/server.py"
+            
+            return script_path
+        finally:
+            del s
+
+    def _handle_server_startup(self):
+        """Handle server startup and output monitoring"""
+        line = ""
+        save_forward = Event()
+        
+        try:
+            if self.proc is None:
+                raise Exception("stdout is None")
+            line = self.proc.stdout.readline()
+            self.remote_port = int(line.strip())
+            print("remote port", self.remote_port)
+            save_forward.set()
+            
+            def output_monitor():
+                save_forward.wait()
+                while True:
+                    try:
+                        if self.proc is None:
+                            raise Exception("stdout is None")
+                        line = self.proc.stdout.read(1)
+                        if line != b"":
+                            print(">", line, "<", sep="", end="")
+                    except Exception as e:
+                        print(e)
+                        break
+
+            thread = Thread(target=output_monitor, daemon=True)
+            thread.start()
+            
+        except Exception:
+            if self.proc:
+                try:
+                    self.proc.terminate()
+                except Exception:
+                    pass
+            
+            stdout, stderr = self.proc.communicate() if self.proc else (b"", b"")
+            from rpyc.lib.compat import BYTES_LITERAL
+            raise ProcessExecutionError(self.proc.argv if self.proc else [], 
+                                        self.proc.returncode if self.proc else -1, 
+                                        BYTES_LITERAL(line) + stdout, # type: ignore
+                                        stderr)
+
+class CrossPlatformTempDir:
+    """Cross-platform temporary directory context manager"""
+    
+    def __init__(self, remote_machine):
+        self.remote_machine = remote_machine
+        self.path = None
+        self.session = None
+
+    def __enter__(self):
+        self.session = self.remote_machine.session()
+        
+        # Try Unix/Linux/macOS method first
+        result = self.session.run("mktemp -d")
+        
+        if result[0] == 0:
+            self.path = result[1].strip()
+            return self.path
+        
+        # Try Python method (more portable)
+        result = self.session.run(
+            "python3 -c 'import tempfile; print(tempfile.mkdtemp())'"
+        )
+        
+        if result[0] == 0:
+            self.path = result[1].strip()
+            return self.path
+        
+        # Fallback method
+        import uuid
+        temp_name = f"tmp_{uuid.uuid4().hex[:8]}"
+        
+        # Try different temp locations
+        temp_bases = ["/tmp", "~/tmp", "."]
+        for base in temp_bases:
+            result = self.session.run(f"mkdir -p {base}/{temp_name}")
+            if result[0] == 0:
+                pwd_result = self.session.run(f"cd {base}/{temp_name} && pwd")
+                if pwd_result[0] == 0:
+                    self.path = pwd_result[1].strip()
+                    return self.path
+        
+        raise RuntimeError("Could not create temporary directory")
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if not (self.path and self.session):
+            return
+        
+        # Clean up temporary directory
+        max_retries = 3
+        for attempt in range(max_retries):
+            result = self.session.run(f"rm -rf '{self.path}'")
+            if result[0] == 0:
+                break
+            
+            if attempt < max_retries - 1:
+                time.sleep(1)  # Wait before retry
+            else:
+                print(f"Warning: Could not clean up temp directory {self.path}")
+        
+        del self.session
