@@ -344,20 +344,12 @@ class NetworkRunner(Runner):
             case _:
                 raise RuntimeError("Invalid connection")
         
-        # print(self.conn.builtins.dir())
         self.bg_event_loop = BgServingThread(self.conn)
-        # print(self.conn.builtins.locals())
-        # print(self.conn.builtins.globals().items())
-        # self.conn.execute("from recursiverpc import *")
         Pool = self.conn.modules.recursiverpc.Pool
         self.conn.modules.sys.stdout = sys.stdout
         self.conn.modules.sys.stderr = sys.stderr
-        # self.conn.execute(f"pool = Pool({self.process_num})")
         self.conn.namespace["pool"] = Pool(self.process_num)
         self.pool = self.conn.namespace["pool"]
-        # print(self.conn.namespace)
-        # self.conn.namespace["pool2"] = pool
-        # print(self.conn.eval("pool2 is pool"))
         
         self.process_handle: list[RPC_Future] = []
 
@@ -365,29 +357,22 @@ class NetworkRunner(Runner):
         if self.conn is None:
             raise RuntimeError("No connection")
         
-        # teleport function
-        self.conn.ping()
+        # self.conn.ping()
         self.conn.teleport(func)
         self.conn.namespace["args"] = args
         self.conn.namespace["kwargs"] = kwargs
         self.conn.namespace["result"] = self.pool.apply_async(func, 
                                                               self.conn.namespace["args"], 
                                                               self.conn.namespace["kwargs"])
-        # self.conn.execute(f"result = pool.apply_async({func.__name__}, args, kwargs)")
-        # result = self.conn.eval(f"pool.run({func.__name__}, args, kwargs)")
         result = self.conn.namespace["result"]
-        # self.process_handle.append(result)
         self.process_handle.append(RPC_Future(result, self))
-        # self.conn.eval("result.done()")
         # print(result.done())
-        # print("=>>", self.conn.eval("result.done()"))
         return self.process_handle[-1]
 
     def close(self):
         print("cleaning")
         try:
             if self.conn is not None:
-                # self.conn.execute("pool.close()")
                 self.pool.close()
         except Exception as e:
             print("abc", e)
