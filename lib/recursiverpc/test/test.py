@@ -40,8 +40,6 @@ def main():
     else:
         PORT = int(PORT)
     PASSWORD = os.getenv("PASSWORD")
-    if PASSWORD is None:
-        PASSWORD = None
     
     # HOSTNAME_FORWARD = HOSTNAME
     # PORT_FORWARD = PORT
@@ -49,13 +47,13 @@ def main():
     
     # print("connecting")
     # print(HOSTNAME, USER, PORT, PASSWORD)
-    sshmachine = ParamikoMachine(host=HOSTNAME,
-                                 user=USER, 
-                                 port=PORT, 
-                                 password=PASSWORD,
-                                 missing_host_policy=paramiko.AutoAddPolicy())
+    # sshmachine = ParamikoMachine(host=HOSTNAME,
+    #                              user=USER, 
+    #                              port=PORT, 
+    #                              password=PASSWORD,
+    #                              missing_host_policy=paramiko.AutoAddPolicy())
     
-    if True:
+    if False:
         with Recursive_RPC(client=[
                     # proxyprocess(remote_port[1], HOSTNAME_FORWARD, PORT_FORWARD, [
                     #     localprocess(4),
@@ -122,13 +120,14 @@ def main():
                                  keep_alive=True,
                                  connect_timeout=5,
                                  missing_host_policy=paramiko.AutoAddPolicy())
+    
     if True:
         with Recursive_RPC(client=[
                     # proxyprocess(remote_port[1], HOSTNAME_FORWARD, PORT_FORWARD, [
                     #     localprocess(4),
                     #     networkprocess(2, HOSTNAME, remote_port[2], "tag1")
                     # ], ssh_login, {"tag1": (HOSTNAME, USER, PORT, PASSWORD, remote_port[2])}),
-                    localprocess(2),
+                    # localprocess(2),
                     networkprocess(2, sshmachine),
                     # networkprocess(2, HOSTNAME, remote_port[3], stop2)
                 ], conn={}) as pool:
