@@ -1,9 +1,15 @@
 import ast
 import inspect
 import textwrap
-from types import FunctionType, CellType
+# from types import FunctionType, CellType, Any, Callable
+from types import FunctionType, CodeType, CellType
+from typing import Any, Callable, Dict, Tuple, TypeVar, ParamSpec, overload
 
-def make_pure_function_exec(closure_func):
+# Define TypeVars for the original function's arguments and return type
+P = ParamSpec("P")  # Represents the parameters of the original function
+R = TypeVar("R")    # Represents the return type of the original function
+
+def make_pure_function_exec(closure_func) -> Tuple[FunctionType, Dict[str, Any]]:
     """Convert closure function to pure using exec approach - fixed"""
     
     if not closure_func.__closure__:
@@ -49,7 +55,7 @@ def pure_{closure_func.__name__}(*args, closure_vars_dict=None, **kwargs):
     
     return pure_func, closure_dict
 
-def make_pure_function_cells(closure_func):
+def make_pure_function_cells(closure_func) -> Tuple[FunctionType, Dict[str, Any]]:
     """Convert closure function to pure function by properly handling cells"""
     
     if not closure_func.__closure__:
@@ -120,7 +126,7 @@ def make_pure_function_cells(closure_func):
     
     return pure_function, closure_dict
 
-def make_pure_simple(closure_func):
+def make_pure_simple(closure_func) -> Tuple[FunctionType, Dict[str, Any]]:
     """Simple string manipulation approach - most reliable"""
     
     if not closure_func.__closure__:
@@ -236,11 +242,17 @@ def create_complex_function():
     
     return process
 
+from typing import Protocol
+
+class Formatter(Protocol):
+    def __call__(self, text: str, *args, **kwargs) -> str: ...
+
 if __name__ == "__main__":
     # Test all approaches
     print("=== Testing Simple String Approach ===")
     formatter = create_formatter("START", "END")
     pure_formatter, closure_info = make_pure_simple(formatter)
+    pure_formatter: Formatter = pure_formatter
 
     print(f"Closure vars: {closure_info}")
     print(f"Original: {formatter('hello')}")
