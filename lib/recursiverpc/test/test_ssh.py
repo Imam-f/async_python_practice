@@ -44,6 +44,55 @@ def main():
     if PASSWORD is None:
         PASSWORD = None
     
+    import random
+    from plumbum.commands import BaseCommand
+    from plumbum.machines.session import ShellSession, ShellSessionError, MarkedPipe, shell_logger, SessionPopen
+    def popen(self: ShellSession, cmd):
+        """Runs the given command in the shell, adding some decoration around it. Only a single
+        command can be executed at any given time.
+
+        :param cmd: The command (string or :class:`Command <plumbum.commands.BaseCommand>` object)
+                    to run
+        :returns: A :class:`SessionPopen <plumbum.session.SessionPopen>` instance
+        """
+        if self.proc is None:
+            raise ShellSessionError("Shell session has already been closed")
+        if self._current and not self._current._done:
+            raise ShellSessionError("Each shell may start only one process at a time")
+
+        full_cmd = "function prompt {\" \"}; "
+        full_cmd += cmd.formulate(1) if isinstance(cmd, BaseCommand) else cmd
+        marker = f"--.END{time.time() * random.random()}.--"
+        if full_cmd.strip():
+            full_cmd += " ; "
+        else:
+            full_cmd = "function prompt {\" \"}; "
+            full_cmd = "true ; "
+        # full_cmd += f"echo $? ; echo '{marker}'"
+        full_cmd += f"Write-Output $LASTEXITCODE; Write-Output '{marker}'"
+        if not self.isatty:
+            full_cmd += f" ; [Console]::Error.WriteLine('{marker}')"
+        if self.custom_encoding:
+            full_cmd = full_cmd.encode(self.custom_encoding)
+        shell_logger.debug("Running %r", full_cmd)
+        self.proc.stdin.write(full_cmd + b"\n") # type: ignore
+        self.proc.stdin.flush()
+        print("=>>>>", full_cmd)
+        self._current = SessionPopen(
+            self.proc,
+            full_cmd,
+            self.isatty,
+            self.proc.stdin,
+            MarkedPipe(self.proc.stdout, marker),
+            MarkedPipe(self.proc.stderr, marker),
+            self.custom_encoding,
+            host=self.host,
+        )
+        return self._current
+
+        
+    # ShellSession.popen = types.MethodType(ShellSession.popen, ShellSession)
+    ShellSession.popen = popen
     # HOSTNAME_FORWARD = HOSTNAME
     # PORT_FORWARD = PORT
     # ssh_login = (USER, PASSWORD)
@@ -55,19 +104,27 @@ def main():
                                  port=PORT, 
                                  password=PASSWORD,
                                  missing_host_policy=paramiko.AutoAddPolicy())
+    
     print("ls")
     # print(ls_cmd())
-    print(*sshmachine.env["PATH"].split(":"), sep="\n") 
+    # print(*sshmachine.env["PATH"].split(":"), sep="\n") 
     print("================")
     print(sshmachine.cwd)
     print(local["ls"]())
     try:
-        env_cmd = sshmachine["/usr/bin/env"]
+        # env_cmd = sshmachine["/usr/bin/env"]
+        # env_cmd = sshmachine["Env"]
+        env_cmd = sshmachine["env.exe"]
+        print('a')
+        print("env", env_cmd)
         print("env", env_cmd())
-        ls_cmd = sshmachine["/usr/bin/env"]
+        print("\n\n\n\n\n\n")
+        ls_cmd = sshmachine["ls.exe"]
         print(ls_cmd())
     except Exception as e:
-        print(e)
+        import traceback
+        traceback.print_exc()
+        # print(e)
     print(os.system("asdfhjk"), os.system("pwd"))
     
     print("================")
