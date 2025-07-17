@@ -336,7 +336,8 @@ class NetworkRunner(Runner):
                         # Fix recursiverpc path to use current environment
                         # TODO: this should be replaced
                         newlines = self._fix_recursiverpc_path(lines)
-                        header += newlines
+                        # header += newlines
+                        # header += lines
                 
                 server_script_user = header + "\n" + SERVER_SCRIPT[1:]
                 extra_setup = ""
@@ -349,6 +350,7 @@ class NetworkRunner(Runner):
                 self.uv_bin = os.path.relpath(os.fsdecode(find_uv_bin()), os.getcwd())
                 # TODO: fix this, shell name is leaking
                 executable = ["/usr/bin/env", "uv", "run", "-q", "--python", f"{major}.{minor}", "--script"]
+                # executable = ["uv.exe", "run", "-q", "--python", f"{major}.{minor}", "--script"]
                 self.server = DeployedCrossPlatformServer(
                     self.machine,
                     server_script=server_script_user,
@@ -833,6 +835,7 @@ class DeployedCrossPlatformServer(DeployedServer):
         """Write server script in a cross-platform way"""
         s = remote_machine.session()
         try:
+            print(tmp_dir)
             s.run(f"cd '{tmp_dir}'")
             
             # Write script line by line to avoid shell escaping issues
@@ -846,6 +849,9 @@ class DeployedCrossPlatformServer(DeployedServer):
             result = s.run("pwd")
             current_dir = result[1].strip()
             script_path = f"{current_dir}/server.py"
+            print(s.run(f"cat '{script_path}'"))
+            print(s.run(f"env | grep path"))
+            print(s.run(f"uv'"))
             
             return script_path
         finally:

@@ -40,6 +40,7 @@ def main():
     else:
         PORT = int(PORT)
     PASSWORD = os.getenv("PASSWORD")
+    print(PORT)
     
     # HOSTNAME_FORWARD = HOSTNAME
     # PORT_FORWARD = PORT
