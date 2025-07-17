@@ -334,18 +334,20 @@ class NetworkRunner(Runner):
                     with open(temp_dir / "util.py", "r") as f:
                         lines = f.read()
                         # Fix recursiverpc path to use current environment
+                        # TODO: this should be replaced
                         newlines = self._fix_recursiverpc_path(lines)
                         header += newlines
                 
                 server_script_user = header + "\n" + SERVER_SCRIPT[1:]
                 extra_setup = ""
-                print(server_script_user)
+                # print(server_script_user)
                 
                 major = sys.version_info[0]
                 minor = sys.version_info[1]
                 
                 # Use uv run with script mode
                 self.uv_bin = os.path.relpath(os.fsdecode(find_uv_bin()), os.getcwd())
+                # TODO: fix this, shell name is leaking
                 executable = ["/usr/bin/env", "uv", "run", "-q", "--python", f"{major}.{minor}", "--script"]
                 self.server = DeployedCrossPlatformServer(
                     self.machine,
@@ -370,14 +372,7 @@ class NetworkRunner(Runner):
         
         self.process_handle: list[RPC_Future] = []
         
-        # self.bg_event_loop = BgServingThread(self.conn)
-        # self.conn.execute("from recursiverpc import *")
-        # self.conn.execute(f"pool = Pool({self.process_num})")
-        # 
-        # self.process_handle: list[RPC_Future] = []
-
     def _check_uv_available(self) -> bool:
-        """Check if uv is available using the found binary"""
         result = subprocess.run(
             [self.uv_bin, "--version"], 
             capture_output=True, text=True
@@ -385,7 +380,6 @@ class NetworkRunner(Runner):
         return result.returncode == 0
 
     def _generate_requirements(self):
-        """Generate requirements.txt using uv pip freeze"""
         result = subprocess.run(
             [self.uv_bin, "pip", "freeze"], 
             capture_output=True, text=True, check=True
@@ -407,13 +401,8 @@ class NetworkRunner(Runner):
         if not recursiverpc_path:
             return content
         
-        # Pattern to match the recursiverpc dependency line
         pattern = r'recursiverpc = \{[^}]*\}'
-        
-        # Escape backslashes for regex replacement
-        escaped_path = recursiverpc_path.replace('\\', '/')
-        
-        # Create replacement with current environment path
+        escaped_path = recursiverpc_path.replace('\\', '/') # TODO: this is windows specific line
         replacement = f'recursiverpc = {{ path = "{escaped_path}", editable = true }}'
         
         # Replace the pattern
@@ -426,9 +415,6 @@ class NetworkRunner(Runner):
             
             # Get the module file path
             module_file = Path(recursiverpc.__file__)
-            
-            # Navigate up to find the project root
-            # From src/recursiverpc/__init__.py -> project root
             current = module_file.parent  # src/recursiverpc
             
             # Go up until we find pyproject.toml
@@ -769,159 +755,6 @@ class Pool:
 
 #################################################################
 
-class DeployedWindowsServer(DeployedServer):
-    def __init__(self: "DeployedWindowsServer",
-                remote_machine: SshMachine | ParamikoMachine,
-                server_class="rpyc.utils.server.ThreadedServer",
-                service_class="rpyc.core.service.SlaveService",
-                server_script=SERVER_SCRIPT,
-                extra_setup="",
-                python_executable=None) -> None:
-        self.proc = None
-        self.tun = None
-        self.remote_machine = remote_machine
-        self._tmpdir_ctx = None
-        
-        if isinstance(python_executable, BoundCommand):
-            cmd = python_executable
-        elif python_executable:
-            cmd = remote_machine[python_executable]
-        else:
-            major = sys.version_info[0]
-            minor = sys.version_info[1]
-            cmd = None
-            for opt in [f"python{major}.{minor}", f"python{major}"]:
-                try:
-                    cmd = remote_machine[opt]
-                except CommandNotFound:
-                    pass
-                else:
-                    break
-            if not cmd:
-                cmd = remote_machine.python
-
-        class tempdir:
-            def __init__(self, remote_machine):
-                self.remote_machine = remote_machine
-                env_cmd = remote_machine["/c/Program\\ Files/Git/usr/bin/env"]
-                # self.origdir = env_cmd["pwd"]().strip()
-                # tempdir = env_cmd["python3", "-c"]("import tempfile; "
-                #               "td = tempfile.TemporaryDirectory(); "
-                #               "print(td.name)").strip()
-                # print(tempdir, "11111111111")
-                tempdir = env_cmd["mktemp"]("-d").strip()
-                self.path = tempdir
-                
-                print(tempdir)
-                self.s = remote_machine.session()
-            
-            def __enter__(self):
-                # self.remote_machine.cwd.chdir(self.path)
-                return self.path
-            
-            def __exit__(self, exc_type, exc_val, exc_tb):
-                # self.remote_machine.cwd.chdir(self.origdir)
-                # env_cmd = self.remote_machine["/c/Program\\ Files/Git/usr/bin/env"]
-                # print(self.origdir)
-                # print(self.path.strip().split("/")[-1])
-                path_folder = self.path.strip().split("/")[-1]
-                self.s.run(f"cd AppData/Local/Temp/{path_folder}")
-                self.s.run(f"cd ..")
-                # print(self.s.run(f"pwd")[1].strip())
-                # print(self.path, path_folder)
-                # print(self.s.run(f"pwd"))
-                # print(self.s.run(f"ls {path_folder}"))
-                failed = False
-                try:
-                    self.s.run(f"rm -rf {path_folder}")
-                    # print(self.s.run(f"rm -rf {path_folder}"))
-                except Exception as e:
-                    print("1", e)
-                    failed = True
-                if failed: 
-                    try:
-                        time.sleep(2)
-                        self.s.run(f"rm -rf {path_folder}")
-                        # print(self.s.run(f"rm -rf {path_folder}"))
-                    except Exception as e:
-                        print("2", e)
-                        self.s.run(f"rm -rf {path_folder}")
-                # try:
-                #     print(self.s.run(f"ls {path_folder}"))
-                # except Exception as e:
-                #     print("2", e)
-                # print(self.path, path_folder)
-                # print(self.s.run(f"pwd"))
-                del self.s
-
-        self._tmpdir_ctx = tempdir(remote_machine)
-        tmp = self._tmpdir_ctx.__enter__()
-        # print(tmp)
-        
-        server_modname, server_clsname = server_class.rsplit(".", 1)
-        service_modname, service_clsname = service_class.rsplit(".", 1)
-
-        for source, target in (
-            ("$SERVER_MODULE$", server_modname),
-            ("$SERVER_CLASS$", server_clsname),
-            ("$SERVICE_MODULE$", service_modname),
-            ("$SERVICE_CLASS$", service_clsname),
-            ("$EXTRA_SETUP$", extra_setup),
-        ):
-            server_script = server_script.replace(source, target)
-
-        s = remote_machine.session()
-        s.run(f"cd {tmp}")
-        for line in server_script.split("\n"):
-            s.run(f"echo '{line}' >> server.py")
-        script = str(s.run(f"pwd")[1].strip()) + "/server.py"
-        del s
-        
-        self.proc = cmd.popen(script, new_session=True)
-
-        line = ""
-        save_forward = Event()
-        try:
-            line = self.proc.stdout.readline()
-            self.remote_port = int(line.strip())
-            print("remote port", self.remote_port)
-            save_forward.set()
-            
-            def thread_printer():
-                print("thread printer")
-                save_forward.wait()
-                while True:
-                    try:
-                        if self.proc is None:
-                            raise Exception("stdout is None")
-                        line = self.proc.stdout.read(1)
-                        # print(">", line.decode("utf-8"), line, "<", sep="", end="")
-                        if line != b"":
-                            print(">", line, "<", sep="", end="")
-                        # line = self.proc.stderr.read(1)
-                        # print("+", line, "+", sep="", end="")
-                    except Exception as e:
-                        print("a", e)
-            thread = Thread(target=thread_printer)
-            thread.start()
-            # del thread
-        except Exception:
-            try:
-                self.proc.terminate()
-            except Exception:
-                pass
-            # stdout, stderr = self.proc.communicate("exit\n".encode("utf-8"))
-            stdout, stderr = self.proc.communicate()
-            from rpyc.lib.compat import BYTES_LITERAL
-            raise ProcessExecutionError(self.proc.argv, self.proc.returncode, BYTES_LITERAL(line) + stdout, stderr)
-
-        if hasattr(remote_machine, "connect_sock"):
-            # Paramiko: use connect_sock() instead of tunnels
-            self.local_port = None
-        else:
-            self.local_port = rpyc.utils.factory._get_free_port()
-            self.tun = remote_machine.tunnel(self.local_port, self.remote_port)
-
 class DeployedCrossPlatformServer(DeployedServer):
     def __init__(self,
                 remote_machine: SshMachine | ParamikoMachine,
@@ -935,10 +768,8 @@ class DeployedCrossPlatformServer(DeployedServer):
         self.remote_machine = remote_machine
         self._tmpdir_ctx = None
         
-        # Handle python executable
-        print(python_executable)
+        # print(python_executable)
         if isinstance(python_executable, (list, tuple)):
-            # If it's a list/tuple, build the command
             cmd = remote_machine[python_executable[0]]
             for part in python_executable[1:]:
                 cmd = cmd[part]
@@ -966,7 +797,7 @@ class DeployedCrossPlatformServer(DeployedServer):
 
         # Write server script
         script_path = self._write_server_script(remote_machine, tmp, server_script)
-        print(script_path, cmd.bound_command)
+        # print(script_path, cmd.bound_command)
         
         self.proc = cmd.popen(script_path, new_session=True)
         self._handle_server_startup()
