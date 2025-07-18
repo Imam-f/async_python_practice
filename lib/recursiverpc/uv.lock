@@ -187,19 +187,25 @@ source = { editable = "." }
 dependencies = [
     { name = "paramiko" },
     { name = "plumbum" },
-    { name = "python-dotenv" },
     { name = "rpyc" },
     { name = "uv" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "python-dotenv" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "paramiko", specifier = ">=3.5.1" },
     { name = "plumbum", specifier = ">=1.9.0" },
-    { name = "python-dotenv", specifier = ">=1.1.1" },
     { name = "rpyc", specifier = ">=6.0.2" },
     { name = "uv", specifier = ">=0.7.21" },
 ]
+
+[package.metadata.requires-dev]
+dev = [{ name = "python-dotenv", specifier = ">=1.1.1" }]
 
 [[package]]
 name = "rpyc"

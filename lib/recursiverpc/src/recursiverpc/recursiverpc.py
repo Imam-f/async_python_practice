@@ -336,12 +336,12 @@ class NetworkRunner(Runner):
                         # Fix recursiverpc path to use current environment
                         # TODO: this should be replaced
                         newlines = self._fix_recursiverpc_path(lines)
-                        # header += newlines
+                        header += newlines
                         # header += lines
                 
                 server_script_user = header + "\n" + SERVER_SCRIPT[1:]
                 extra_setup = ""
-                # print(server_script_user)
+                print(server_script_user)
                 
                 major = sys.version_info[0]
                 minor = sys.version_info[1]
@@ -799,11 +799,12 @@ class DeployedCrossPlatformServer(DeployedServer):
 
         # Write server script
         script_path = self._write_server_script(remote_machine, tmp, server_script)
-        # print(script_path, cmd.bound_command)
+        print("\n\n\n-------------")
+        print(script_path, cmd.bound_command)
         
         self.proc = cmd.popen(script_path, new_session=True)
         self._handle_server_startup()
-
+        
         if hasattr(remote_machine, "connect_sock"):
             self.local_port = None
         else:
@@ -850,8 +851,8 @@ class DeployedCrossPlatformServer(DeployedServer):
             current_dir = result[1].strip()
             script_path = f"{current_dir}/server.py"
             print(s.run(f"cat '{script_path}'"))
-            print(s.run(f"env | grep path"))
-            print(s.run(f"uv'"))
+            # print(s.run(f"env | grep path"))
+            # print(s.run(f"uv"))
             
             return script_path
         finally:

@@ -9,11 +9,12 @@ from typing import Callable
 from queue import Queue
 import paramiko
 from plumbum.machines.paramiko_machine import ParamikoMachine
+from plumbum.machines.ssh_machine import PuttyMachine
 
 # import faulthandler
 # faulthandler.enable()
 # faulthandler.dump_traceback_later(timeout=10)
-            
+
 #################################################################
 
 def worker_func(number):
@@ -53,6 +54,11 @@ def main():
     #                              port=PORT, 
     #                              password=PASSWORD,
     #                              missing_host_policy=paramiko.AutoAddPolicy())
+    
+    # puttymachine = PuttyMachine(host=HOSTNAME,
+    #                              user=USER, 
+    #                              port=PORT, 
+    #                              )
     
     if False:
         with Recursive_RPC(client=[
