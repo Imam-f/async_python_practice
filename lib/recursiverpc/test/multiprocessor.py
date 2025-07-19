@@ -3,6 +3,7 @@ import sys
 from concurrent.futures import ProcessPoolExecutor
 import rpyc
 
+from uv import find_uv_bin
 # def remote_process(x):
 #     print(x)
 #     pass
@@ -29,7 +30,7 @@ class Pool:
         self.pool = ProcessPoolExecutor(max_workers=max_workers)
         
         # connect to rpyc server
-        self.max_workers = self.pool._max_workers
+        self.max_workers = self.pool._max_workers # type: ignore
         self.scheduler = []
         for i in range(max_workers):
             self.pool.submit(start_rpyc_server, 18812 + i)
@@ -90,7 +91,6 @@ class Pool:
     def __del__(self):
         self.close()
 
-from uv import find_uv_bin
 
 def _detect_virtualenv() -> str:
     """
