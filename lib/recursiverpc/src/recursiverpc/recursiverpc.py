@@ -1,13 +1,11 @@
-from typing import Optional, List, Tuple
+from typing import Tuple
 from typing import Generator, TypeVar, Callable, Any, Dict, Generic
 import os
 import random
-import platform
 import sys
 import tempfile
 import time
 import subprocess
-import json
 import re
 from dataclasses import dataclass
 
@@ -19,7 +17,7 @@ from threading import Thread, Event
 
 import rpyc
 from rpyc import BgServingThread
-from rpyc.utils.zerodeploy import DeployedServer, SERVER_SCRIPT
+from rpyc.utils.zerodeploy import DeployedServer
 
 from plumbum import SshMachine
 from plumbum.commands import CommandNotFound, ProcessExecutionError
@@ -805,7 +803,8 @@ class DeployedCrossPlatformServer(DeployedServer):
         self.proc = cmd.popen(script_path, new_session=True)
         self._handle_server_startup()
         
-        if hasattr(remote_machine, "connect_sock"):
+        # if hasattr(remote_machine, "connect_sock"):
+        if isinstance(remote_machine, ParamikoMachine):
             self.local_port = None
         else:
             self.local_port = rpyc.utils.factory._get_free_port()
