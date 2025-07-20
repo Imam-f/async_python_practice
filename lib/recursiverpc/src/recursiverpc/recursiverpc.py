@@ -67,14 +67,15 @@ if __name__ == "__main__":
     logger = None
 
     $EXTRA_SETUP$
-
+    
     t = ServerCls(ServiceCls, hostname = "localhost", port = 0, reuse_addr = True, logger = logger)
+    # ServiceCls.server = t
     thd = t._start_in_thread()
 
     sys.stdout.write(f"{t.port}\n")
     sys.stdout.flush()
     try:
-        read_data = sys.stdin.read()
+        sys.stdin.read()
     finally:
         thd.join(2)
 """
@@ -396,6 +397,8 @@ class NetworkRunner(Runner):
         self.conn.modules.sys.stderr = sys.stderr
         self.conn.namespace["pool"] = Pool(self.process_num)
         self.pool = self.conn.namespace["pool"]
+        # self.conn.root.close()
+        # self.conn.root.close()
 
         self.process_handle: list[RPC_Future] = []
 
@@ -502,12 +505,19 @@ class NetworkRunner(Runner):
         try:
             if self.conn is not None:
                 self.bg_event_loop.stop()
+                # print("-1 Cleaned up")
+                # self.conn.root.close()
+                # print(self.conn.root.server)
+                # self.conn.root.server.close()
+                # print("0 Cleaned up")
+                # self.bg_event_loop.stop()
                 self.conn.close()
                 print("1 Cleaned up")
             self.conn = None
         except Exception as e:
             print("asdf", e)
         try:
+            # time.sleep(10)
             if self.server is not None:
                 self.server.close()
             self.server = None

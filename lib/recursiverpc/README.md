@@ -15,5 +15,6 @@ dependency
     uv
     rpyc
     paramiko
+    plumbum
     ssh
-    git bash as ssh
+    dill
