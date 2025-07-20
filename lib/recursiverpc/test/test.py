@@ -33,6 +33,8 @@ def worker_func(number):
         sum_num += i
     return number * number
 
+def remote_print(x):
+    print("what is happened here", x)
 
 def main():
     # Create a pool of worker processes
@@ -165,7 +167,6 @@ def main():
                 return not queue.empty()
             # queue_put = queue
             # queue_get = queue
-
             def value_producer(queue, print):
                 if callable(print):
                     print = print
