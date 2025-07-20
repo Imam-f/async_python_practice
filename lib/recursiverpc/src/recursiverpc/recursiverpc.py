@@ -805,34 +805,8 @@ class Pool:
         return self.scheduler[index]
 
     def apply_async(self, func, args, kwargs):
-        import sys
         runner = self._schedule()
         function = runner.teleport(func)
-        # runner.root._conn.namespace["remote_print"]("hello from the other side")
-        # print(runner.root.getconn().root.getconn().root.getconn().builtins.globals().keys())
-        # print(runner.root.getconn().root.getconn().builtins.globals().keys())
-        print(runner.root.getconn().root.getconn().builtins.globals()['__name__'])
-        print("**********************")
-        # print(runner.root.getconn().builtins.globals().keys())
-        print(runner.root.getconn().builtins.globals()['__name__'])
-        # print(runner.root.getconn().root.getconn().modules['__main__'].remote_print("hello from the other side"))
-        # print(runner.root.getconn().modules['__main__'].remote_print("hello from the other side"))
-        print(dir(runner.root.getconn().root))
-        print(runner.root.getconn().namespace)
-        print(runner.namespace.keys())
-        print("=================")
-        print(runner.root.getconn().modules.sys.argv)
-        print(runner.root.getconn().modules.sys.orig_argv)
-        print(runner.root.getconn().root.__class__.__name__)
-        print(runner.root.getconn().__class__.__name__)
-        print(runner.root.__class__.__name__)
-        print(dir(runner.root))
-        print(runner.modules.sys.argv)
-        print(runner.modules.sys.orig_argv)
-        print("-----------------")
-        print(globals().keys())
-        print(sys.argv)
-        print(sys.orig_argv)
 
         result_future = Future()
 

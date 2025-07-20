@@ -33,9 +33,6 @@ def worker_func(number):
         sum_num += i
     return number * number
 
-def remote_print(x):
-    print("what is happened here", x)
-
 def main():
     # Create a pool of worker processes
     # The number of processes is set to the number of CPU cores
