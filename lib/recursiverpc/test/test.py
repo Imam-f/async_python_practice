@@ -21,6 +21,9 @@ from plumbum.machines.ssh_machine import PuttyMachine
 # import faulthandler
 # faulthandler.enable()
 # faulthandler.dump_traceback_later(timeout=10)
+import logging
+
+logging.basicConfig(level=logging.INFO)
 
 #################################################################
 

@@ -353,6 +353,7 @@ class NetworkRunner(Runner):
                         lines = f.read()
                         # Fix recursiverpc path to use current environment
                         # TODO: this should be replaced
+                        # use dist or just copy the project
                         newlines = self._fix_recursiverpc_path(lines)
                         header += newlines
                         # header += lines
@@ -368,7 +369,6 @@ class NetworkRunner(Runner):
                 self.uv_bin = os.path.relpath(os.fsdecode(find_uv_bin()), os.getcwd())
                 # TODO: fix this, shell name is leaking
                 executable = [
-                    "/usr/bin/env",
                     "uv",
                     "run",
                     "-q",
@@ -868,7 +868,13 @@ class DeployedCrossPlatformServer(DeployedServer):
         elif python_executable:
             cmd = remote_machine[python_executable]
         else:
-            cmd = self._find_python_command(remote_machine)
+            cmd = remote_machine[
+                    "uv",
+                    "run",
+                    "-q",
+                    "--",
+                    "python",
+                ]
 
         self._tmpdir_ctx = CrossPlatformTempDir(remote_machine)
         tmp = self._tmpdir_ctx.__enter__()
@@ -905,29 +911,9 @@ class DeployedCrossPlatformServer(DeployedServer):
                 self.local_port = s.getsockname()[1]
             self.tun = remote_machine.tunnel(self.local_port, self.remote_port)
 
-    def _find_python_command(self, remote_machine):
-        """Find appropriate Python command across platforms"""
-        major = sys.version_info[0]
-        minor = sys.version_info[1]
-
-        python_candidates = [
-            f"python{major}.{minor}",
-            f"python{major}",
-            "python3",
-            "python",
-        ]
-
-        for candidate in python_candidates:
-            try:
-                return remote_machine[candidate]
-            except CommandNotFound:
-                continue
-
-        # Fallback to plumbum's python detection
-        return remote_machine.python
-
     def _write_server_script(self, remote_machine, tmp_dir, server_script):
         """Write server script in a cross-platform way"""
+        # TODO: Remove all instance of manual session
         s = remote_machine.session()
         try:
             print(tmp_dir)
@@ -1009,6 +995,7 @@ class CrossPlatformTempDir:
         self.session = None
 
     def __enter__(self):
+        # TODO: remove all instance of manual session
         self.session = self.remote_machine.session()
 
         # Try Unix/Linux/macOS method first
@@ -1051,6 +1038,7 @@ class CrossPlatformTempDir:
         # Clean up temporary directory
         max_retries = 3
         for attempt in range(max_retries):
+            # TODO: remove all instance of manual session
             result = self.session.run(f"rm -rf '{self.path}'")
             if result[0] == 0:
                 break
