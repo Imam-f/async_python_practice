@@ -10,6 +10,8 @@ class MultiprocessedFunctions:
         self.frame_locals_before = None
         self.result_queue = multiprocessing.Queue()
         self.results = {}
+        self._is_active = True
+        self._handled_functions = set()  # Track functions handled by nested contexts
     
     def __enter__(self):
         # Capture the caller's frame and its local variables before the block
@@ -20,9 +22,16 @@ class MultiprocessedFunctions:
         if frame is None:
             raise
         self.frame_locals_before = set(frame.f_locals.keys())
+        
+        # Mark this context as active in the frame
+        frame.f_locals['__multiprocessed_functions_active__'] = self
+        
         return self.results
     
     def __exit__(self, exc_type, exc_val, exc_tb):
+        # Mark this context as inactive
+        self._is_active = False
+        
         # Get the caller's frame and check for new functions
         frame = inspect.currentframe()
         if frame is None:
@@ -32,13 +41,18 @@ class MultiprocessedFunctions:
             raise
         frame_locals_after = frame.f_locals
         
-        # Find newly defined functions
+        # Remove the active flag
+        if '__multiprocessed_functions_active__' in frame_locals_after:
+            del frame.f_locals['__multiprocessed_functions_active__']
+        
+        # Find newly defined functions (excluding those handled by nested ParallelFor)
         for name, obj in frame_locals_after.items():
             if self.frame_locals_before is None:
                 continue
             if (name not in self.frame_locals_before and 
                 callable(obj) and 
-                inspect.isfunction(obj)):
+                inspect.isfunction(obj) and
+                name not in self._handled_functions):  # Skip if already handled
                 self.functions.append(obj)
         
         # Create and start a process for each function
@@ -107,6 +121,7 @@ class ParallelFor:
         self.result_queue = multiprocessing.Queue()
         self.results = {}
         self.parent_context = None
+        self.parent_obj = None
         self.function_name = None
     
     def __enter__(self):
@@ -120,24 +135,16 @@ class ParallelFor:
         self.frame_locals_before = set(frame.f_locals.keys())
         
         # Check if we're inside an ACTIVE MultiprocessedFunctions context
-        # by looking for a variable that was returned from __enter__
-        for var_name, var_value in frame.f_locals.items():
-            if (var_name in self.frame_locals_before and 
-                isinstance(var_value, dict) and
-                hasattr(var_value, '__class__')):
-                # Check if there's an active MultiprocessedFunctions in the call stack
-                check_frame = frame
-                while check_frame is not None:
-                    # Look for 'self' that is a MultiprocessedFunctions instance
-                    if 'self' in check_frame.f_locals:
-                        obj = check_frame.f_locals['self']
-                        if isinstance(obj, MultiprocessedFunctions):
-                            # Verify this is the context that returned this dict
-                            if obj.results is var_value:
-                                self.parent_context = var_value
-                                print("Detected active parent MultiprocessedFunctions context")
-                                return self.results
-                    check_frame = check_frame.f_back
+        check_frame = frame
+        while check_frame is not None:
+            if '__multiprocessed_functions_active__' in check_frame.f_locals:
+                parent_obj = check_frame.f_locals['__multiprocessed_functions_active__']
+                if isinstance(parent_obj, MultiprocessedFunctions) and parent_obj._is_active:
+                    self.parent_context = parent_obj.results
+                    self.parent_obj = parent_obj
+                    print("Detected active parent MultiprocessedFunctions context")
+                    break
+            check_frame = check_frame.f_back
         
         return self.results
     
@@ -160,6 +167,9 @@ class ParallelFor:
                 callable(obj) and 
                 inspect.isfunction(obj)):
                 functions.append((name, obj))
+                # Mark this function as handled in parent context
+                if self.parent_obj is not None:
+                    self.parent_obj._handled_functions.add(name)
         
         if not functions:
             print("No functions found in ParallelFor block")
@@ -200,7 +210,6 @@ class ParallelFor:
             
             # Sort by index to maintain order
             temp_results.sort(key=lambda x: x['index'])
-            print(temp_results)
             
             # Store results in list
             for result in temp_results:
@@ -209,7 +218,6 @@ class ParallelFor:
                 else:
                     func_results.append(result['data'])
             
-            print(func_results)
             print(f"Completed all {len(func_processes)} parallel executions for '{func_name}'")
             
             # If we detected a parent context, store results there indexed by function name
@@ -223,16 +231,13 @@ class ParallelFor:
                     self.results = {}
                 self.results = cast(dict, self.results)
                 self.results[func_name] = func_results
-                # print(self.results)
         
         return False
     
     def _run_with_queue(self, func, item, idx, func_name):
         """Wrapper to execute function with item and put result in queue."""
         try:
-            print("=>>>", item, func_name)
             result = func(item)
-            print("=>>> >>>", result)
             self.result_queue.put({
                 'function': func_name,
                 'index': idx,
@@ -241,7 +246,6 @@ class ParallelFor:
                 'pid': multiprocessing.current_process().pid
             })
         except Exception as e:
-            print("error", e)
             self.result_queue.put({
                 'function': func_name,
                 'index': idx,
@@ -249,7 +253,6 @@ class ParallelFor:
                 'error': str(e),
                 'pid': multiprocessing.current_process().pid
             })
-
 
 
 # Example usage
@@ -368,8 +371,8 @@ if __name__ == "__main__":
                 return x * 3
     
     print("\n--- Nested Results (accessible from outer context) ---")
-    print(outer_results)
-    print(inner_results)
+    print(f"outer_results: {outer_results}")
+    print(f"inner_results: {inner_results}")
     print(f"outer_results['double']: {outer_results['double']}")
     print(f"outer_results['triple']: {outer_results['triple']}")
     print(f"outer_results['double'][1]: {outer_results['double'][1]}")
