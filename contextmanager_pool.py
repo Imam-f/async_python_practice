@@ -11,7 +11,7 @@ class MultiprocessedFunctions:
         self.result_queue = multiprocessing.Queue()
         self.results = {}
         self._is_active = True
-        self._handled_functions = set()  # Track functions handled by nested contexts
+        self._parallel_for_tasks = []  # Store tasks from nested ParallelFor
     
     def __enter__(self):
         # Capture the caller's frame and its local variables before the block
@@ -45,19 +45,19 @@ class MultiprocessedFunctions:
         if '__multiprocessed_functions_active__' in frame_locals_after:
             del frame.f_locals['__multiprocessed_functions_active__']
         
-        # Find newly defined functions (excluding those handled by nested ParallelFor)
+        # Find newly defined functions (excluding those from ParallelFor)
+        handled_funcs = {task['func_name'] for task in self._parallel_for_tasks}
         for name, obj in frame_locals_after.items():
             if self.frame_locals_before is None:
                 continue
             if (name not in self.frame_locals_before and 
                 callable(obj) and 
                 inspect.isfunction(obj) and
-                name not in self._handled_functions):  # Skip if already handled
+                name not in handled_funcs):
                 self.functions.append(obj)
         
-        # Create and start a process for each function
+        # Create and start a process for each regular function
         for func in self.functions:
-            # Wrap function to put result in queue
             process = multiprocessing.Process(
                 target=self._run_with_queue, 
                 args=(func,),
@@ -67,19 +67,55 @@ class MultiprocessedFunctions:
             process.start()
             print(f"Started process for: {func.__name__} (PID: {process.pid})")
         
+        # Create and start processes for ParallelFor tasks
+        for task in self._parallel_for_tasks:
+            func = task['func']
+            func_name = task['func_name']
+            items = task['items']
+            
+            print(f"\nParallelizing '{func_name}' over {len(items)} items...")
+            
+            for idx, item in enumerate(items):
+                process = multiprocessing.Process(
+                    target=self._run_parallel_with_queue,
+                    args=(func, item, idx, func_name),
+                    name=f"{func_name}_{idx}"
+                )
+                self.processes.append(process)
+                process.start()
+                print(f"Started process {idx}: {func_name}({item}) (PID: {process.pid})")
+        
         # Join all processes
         for process in self.processes:
             process.join()
             print(f"Joined process: {process.name} (PID: {process.pid})")
         
         # Collect results from queue and store in dictionary
+        parallel_results = {}
         while not self.result_queue.empty():
             result = self.result_queue.get()
             func_name = result['function']
-            if 'error' in result:
-                self.results[func_name] = {'error': result['error'], 'pid': result['pid']}
-            else:
-                self.results[func_name] = result['data']
+            
+            if 'index' in result:  # ParallelFor result
+                if func_name not in parallel_results:
+                    parallel_results[func_name] = []
+                parallel_results[func_name].append(result)
+            else:  # Regular function result
+                if 'error' in result:
+                    self.results[func_name] = {'error': result['error'], 'pid': result['pid']}
+                else:
+                    self.results[func_name] = result['data']
+        
+        # Process parallel results
+        for func_name, results_list in parallel_results.items():
+            results_list.sort(key=lambda x: x['index'])
+            func_results = []
+            for result in results_list:
+                if 'error' in result:
+                    func_results.append({'error': result['error'], 'item': result['item']})
+                else:
+                    func_results.append(result['data'])
+            self.results[func_name] = func_results
         
         print(f"\n--- Collected {len(self.results)} results ---")
         
@@ -97,6 +133,26 @@ class MultiprocessedFunctions:
         except Exception as e:
             self.result_queue.put({
                 'function': func.__name__,
+                'error': str(e),
+                'pid': multiprocessing.current_process().pid
+            })
+    
+    def _run_parallel_with_queue(self, func, item, idx, func_name):
+        """Wrapper to execute parallel function and put result in queue."""
+        try:
+            result = func(item)
+            self.result_queue.put({
+                'function': func_name,
+                'index': idx,
+                'item': item,
+                'data': result,
+                'pid': multiprocessing.current_process().pid
+            })
+        except Exception as e:
+            self.result_queue.put({
+                'function': func_name,
+                'index': idx,
+                'item': item,
                 'error': str(e),
                 'pid': multiprocessing.current_process().pid
             })
@@ -142,7 +198,7 @@ class ParallelFor:
                 if isinstance(parent_obj, MultiprocessedFunctions) and parent_obj._is_active:
                     self.parent_context = parent_obj.results
                     self.parent_obj = parent_obj
-                    print("Detected active parent MultiprocessedFunctions context")
+                    print("Detected active parent MultiprocessedFunctions context - deferring execution")
                     break
             check_frame = check_frame.f_back
         
@@ -158,7 +214,7 @@ class ParallelFor:
             raise
         frame_locals_after = frame.f_locals
         
-        # Find ALL newly defined functions (not just the first one)
+        # Find ALL newly defined functions
         functions = []
         for name, obj in frame_locals_after.items():
             if self.frame_locals_before is None:
@@ -167,14 +223,23 @@ class ParallelFor:
                 callable(obj) and 
                 inspect.isfunction(obj)):
                 functions.append((name, obj))
-                # Mark this function as handled in parent context
-                if self.parent_obj is not None:
-                    self.parent_obj._handled_functions.add(name)
         
         if not functions:
             print("No functions found in ParallelFor block")
             return False
         
+        # If we have a parent context, defer execution to it
+        if self.parent_obj is not None:
+            print(f"Registering {len(functions)} function(s) with parent context for deferred execution")
+            for func_name, func in functions:
+                self.parent_obj._parallel_for_tasks.append({
+                    'func': func,
+                    'func_name': func_name,
+                    'items': list(self.items)
+                })
+            return False
+        
+        # Otherwise, execute immediately (standalone ParallelFor)
         print(f"\nParallelizing {len(functions)} function(s) over {len(self.items)} items...")
         
         # Process each function
@@ -220,17 +285,12 @@ class ParallelFor:
             
             print(f"Completed all {len(func_processes)} parallel executions for '{func_name}'")
             
-            # If we detected a parent context, store results there indexed by function name
-            if self.parent_context is not None:
-                self.parent_context[func_name] = func_results
-                print(f"Stored results in parent context as '{func_name}'")
-            else:
-                # Store in our own results dict if no parent
-                print("Stored results in current context")
-                if not isinstance(self.results, dict):
-                    self.results = {}
-                self.results = cast(dict, self.results)
-                self.results[func_name] = func_results
+            # Store in our own results dict
+            print("Stored results in current context")
+            if not isinstance(self.results, dict):
+                self.results = {}
+            self.results = cast(dict, self.results)
+            self.results[func_name] = func_results
         
         return False
     
